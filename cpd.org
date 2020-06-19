@@ -1,0 +1,100 @@
+#+STARTUP: logdone
+#+TITLE: Continuous Professional Development Record
+#+AUTHOR: Your Name
+#+DESCRIPTION: Export of Your Name's CPD Record.
+#+OPTIONS: toc:nil
+
+:OUTPUT_CONFIG:
+#+BIND: org-latex-inactive-timestamp-format "%s"
+#+BIND: org-export-filter-timestamp-functions (tmp-f-timestamp)
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [landscape,centered]
+#+LATEX_HEADER: \usepackage[a4paper]{anysize}
+#+COLUMNS: %35ITEM(Goals/Activities) %TODO(Status){C+} %STARTED(Started) %CLOSED(Completed) %TYPE(Category) %35OUTCOME(Desired Outcome) %RETROSPECTIVE(Retrospective) 
+:END:
+
+#+BEGIN: columnview :exclude-tags ("config") :hlines 1 :indent t :id global
+#+ATTR_LATEX: :environment longtable :align p{5cm}llllp{5cm}p{5cm}
+| Goals/Activities     | Status   | Started                | Completed              | Category   | Desired Outcome                        | Retrospective                |
+|----------------------+----------+------------------------+------------------------+------------+----------------------------------------+------------------------------|
+| _My Test Goal_       | 1/2      |                        |                        | Some Skill | Become confident in applying blah blah | Fill in after completing     |
+| \_  Another Example  | Pending  |                        |                        | Lecture    | More insight into specifics of blah    | Better understanding of blah |
+| \_  Example Activity | Complete | [2020-06-19 Fri 21:01] | [2020-06-19 Fri 21:01] | Book       | Learn basics of blah blah              | Did I gain a grounding?      |
+#+END:
+
+#+TODO: Pending(p) In-Progress(i) Complete(c)
+* _My Test Goal_ [1/2]                                             :noexport:   
+  :PROPERTIES:
+  :TYPE:     Some Skill
+  :OUTCOME:  Become confident in applying blah blah
+  :RETROSPECTIVE: Fill in after completing
+  :END:
+** Pending Another Example   
+   :PROPERTIES:
+   :TYPE:     Lecture
+   :OUTCOME:  More insight into specifics of blah
+   :RETROSPECTIVE: Better understanding of blah
+   :END:
+** Complete Example Activity   
+   CLOSED: [2020-06-19 Fri 21:01]
+   :PROPERTIES:
+   :TYPE:     Book
+   :OUTCOME:  Learn basics of blah blah
+   :RETROSPECTIVE: Did I gain a grounding?
+   :STARTED:  [2020-06-19 Fri 21:01]
+   :END:
+* Config                                                    :noexport:config:
+#+NAME: startup
+#+BEGIN_SRC emacs-lisp :exports none :results silent
+(defun set-activity-pos-from-goal ()
+   "Helper function to position point at parent goal for given activity."
+  (interactive)
+  (let* ((goals (org-map-entries
+		 '(lambda () (nth 1 (split-string (org-entry-get nil "ITEM") "_"))) ;; takes whats between the '_'
+		 "LEVEL=1-config")) ;; top level headlines, minus config tags
+	 (heading (ido-completing-read "Goal: " goals nil t)))
+    (goto-char 0)
+    (search-forward (format "* _%s_" heading) nil t)))
+(setq org-capture-templates
+      '(("g" "Goal" entry 
+	 (file buffer-file-name)
+	 "* _%^{Goal}_ [/] :noexport: %^{TYPE}p %^{OUTCOME}p %^{RETROSPECTIVE}p" :prepend t)
+	("a" "Activity" entry
+	 (file+function buffer-file-name set-activity-pos-from-goal)
+	 "** Pending %^{Activity} %^{TYPE}p %^{OUTCOME}p %^{RETROSPECTIVE}p" :prepend t)))
+
+(defun org-columns--summary-status-count (statuses _)
+  "Summarise statuses with a Complete cookie."
+  (format "%d/%d"
+	  (cl-count-if (lambda (b) (string-equal b "Complete"))
+		       statuses)
+	  (length statuses)))
+
+
+(set (make-local-variable 'org-columns-summary-types)
+     '(("C+" . org-columns--summary-status-count)))
+
+(defun log-todo-started-date (&rest ignore)
+  "Log TODO creation time in the property drawer under the key 'STARTED'."
+  (when (and (string-equal (org-get-todo-state) "In-Progress")
+	     (not (org-entry-get nil "STARTED")))
+    (org-entry-put nil "STARTED" (format-time-string "[%Y-%m-%d %a %H:%M]"))))
+
+(add-hook 'org-after-todo-state-change-hook #'log-todo-started-date nil t)
+(add-hook 'before-save-hook #'org-update-all-dblocks nil t)
+
+(defun tmp-f-timestamp (s backend info)
+  "Remove brackets and time when exporting to latex."
+  (cond
+   ((org-export-derived-backend-p backend 'latex) (org-timestamp-format (org-timestamp-from-string s) "%Y-%m-%d"))
+   (t s))) ;; catch-all for non-latex
+
+;; allow bind statements 
+(set (make-local-variable 'org-export-allow-bind-keywords) t)
+
+(global-set-key (kbd "C-c c") 'org-capture)
+#+END_SRC
+
+# Local Variables:
+# eval: (progn (org-babel-goto-named-src-block "startup") (org-babel-execute-src-block) (outline-hide-sublevels 1))
+# End:
