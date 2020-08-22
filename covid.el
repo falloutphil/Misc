@@ -1,6 +1,6 @@
 ;;; covid --- summary info.
 ;;; Commentary:
-;;; Only works if you comment out the user-error in org-table--row-type.
+;;; Calculates 14 and 7 day cumulative new cases from WHO data.
 
 ;;; Code:
 (defun covid (country population)
@@ -21,10 +21,10 @@
 	      (cdr (assoc 'population
 			  (elt (json-read-file (format "https://restcountries.eu/rest/v2/name/%s?fields=population" country)) 0)))
 	    population)))
-     (insert (format "#+TBLFM: $9=if (@# > 15, ($6-@-14$6)*100000/%d, 0)::$10=if (@# > 8, ($6-@-7$6)*100000/%d, 0)::$11='(orgtbl-ascii-draw $10 0 100 20)"
+     (insert (format "#+TBLFM: @2$9..@15$9 = 0 :: @16$9..@>$9 = ($6 - @-14$6) * 100000/%d :: @2$10..@8$10 = 0 :: @9$10..@>$10 = ($6 - @-7$6) * 100000/%d :: $11 = '(orgtbl-ascii-draw $10 0 100 20)"
 		     p p)))
-   (org-ctrl-c-ctrl-c)) ;recalc
-
+   (org-ctrl-c-ctrl-c)
+   (org-ctrl-c-ctrl-c)) ;recalc (twice or graph is missing?!)
 
 (provide 'covid)
 ;;; covid ends here
