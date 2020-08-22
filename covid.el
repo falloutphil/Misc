@@ -3,6 +3,9 @@
 ;;; Calculates 14 and 7 day cumulative new cases from WHO data.
 
 ;;; Code:
+(require 'org)
+(require 'json)
+
 (defun covid (country population)
    "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers)."
    (interactive "sCountry Name?  \nnPopulation or 0? ")
@@ -21,10 +24,13 @@
 	      (cdr (assoc 'population
 			  (elt (json-read-file (format "https://restcountries.eu/rest/v2/name/%s?fields=population" country)) 0)))
 	    population)))
-     (insert (format "#+TBLFM: @2$9..@15$9 = 0 :: @16$9..@>$9 = ($6 - @-14$6) * 100000/%d :: @2$10..@8$10 = 0 :: @9$10..@>$10 = ($6 - @-7$6) * 100000/%d :: $11 = '(orgtbl-ascii-draw $10 0 100 20)"
-		     p p)))
+     ;; Zero data for initial window, first element of next window  is then just copied (and scaled),
+     ;; after that it's the difference between the last and first cumulative values in the window.
+     (insert (format "#+TBLFM: @2$9..@14$9 = 0 :: @15$9 =  $6 * 100000/%d :: @16$9..@>$9 = ($6 - @-14$6) * 100000/%d :: @2$10..@7$10 = 0 :: @8$10 =  $6 * 100000/%d :: @9$10..@>$10 = ($6 - @-7$6) * 100000/%d :: $11 = '(orgtbl-ascii-draw $10 0 100 20)"
+		     p p p p)))
    (org-ctrl-c-ctrl-c)
-   (org-ctrl-c-ctrl-c)) ;recalc (twice or graph is missing?!)
+   (org-ctrl-c-ctrl-c) ;recalc (twice or graph is missing?!)
+   (org-beginning-of-line))
 
 (provide 'covid)
 ;;; covid ends here
