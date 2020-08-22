@@ -26,7 +26,7 @@
 	    population)))
      ;; Zero data until last element of initial window, last element is then just copied (and scaled),
      ;; after that it's the difference between the last and first cumulative values in the window.
-     (insert (format "#+TBLFM: @2$9..@14$9 = 0 :: @15$9 =  $6 * 100000/%d :: @16$9..@>$9 = ($6 - @-14$6) * 100000/%d :: @2$10..@7$10 = 0 :: @8$10 =  $6 * 100000/%d :: @9$10..@>$10 = ($6 - @-7$6) * 100000/%d :: $11 = '(orgtbl-ascii-draw $10 0 100 20)"
+     (insert (format "#+TBLFM: @2$9..@14$9 = 0 :: @15$9 =  $6 * 100000/%d :: @16$9..@>$9 = ($6 - @-14$6) * 100000/%d :: @2$10..@7$10 = 0 :: @8$10 =  $6 * 100000/%d :: @9$10..@>$10 = ($6 - @-7$6) * 100000/%d :: $11 = '(orgtbl-uc-draw-grid $10 0 100 40)"
 		     p p p p)))
    (org-ctrl-c-ctrl-c)
    (org-ctrl-c-ctrl-c) ;recalc (twice or graph is missing?!)
