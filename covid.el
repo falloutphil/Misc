@@ -6,9 +6,12 @@
 (require 'org)
 (require 'json)
 
-(defun covid (country population)
-   "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers)."
-   (interactive "sCountry Name?  \nnPopulation or 0? ")
+(defun covid (country population start-date)
+  "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers).  START-DATE dictates X-Axis start."
+   ;(interactive "sCountry Name?  \nnPopulation or 0? ")
+   (interactive (list (read-string "Country? " "GB")
+		      (read-number "Population or 0 ? " 0)
+		      (read-string "Start Date? " "2020-01-01")))
    (switch-to-buffer (format "%s covid" country))
    (org-mode)
    (url-handler-mode t)
@@ -22,7 +25,7 @@
    ;; keep timefmt out of above nested format due to % clashes
    (insert "set:\"xdata time\" set:\"timefmt '%Y-%m-%d'\" ind:1 deps:(10) with:boxes\n")
    ;; order is important here xdata and timefmt must be declared before an xrange using date format
-   (insert "#+PLOT: set:\"xrange ['2020-01-01':]\" set:\"xlabel 'Date'\" set:\"yrange [0:]\" set:\"ylabel 'Cases per 100,000'\"\n")
+   (insert (format "#+PLOT: set:\"xrange ['%s':]\" set:\"xlabel 'Date'\" set:\"yrange [0:]\" set:\"ylabel 'Cases per 100,000'\"\n" start-date))
    (goto-char (point-max))
    (let ((p
 	  (if (eq population 0)
