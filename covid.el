@@ -19,7 +19,10 @@
    (org-table-convert-region (point-min) (point-max))
    (org-table-insert-hline)
    (insert (format "#+PLOT: title:\"Covid Cumulative Window New Cases In %s\" " country))
-   (insert "set:\"xdata time\" set:\"timefmt '%Y-%m-%d'\" ind:1 deps:(10) with:boxes set:\"yrange [0:]\" set:\"xlabel 'Date'\" set:\"ylabel 'Cases per 100,000'\"\n")
+   ;; keep timefmt out of above nested format due to % clashes
+   (insert "set:\"xdata time\" set:\"timefmt '%Y-%m-%d'\" ind:1 deps:(10) with:boxes\n")
+   ;; order is important here xdata and timefmt must be declared before an xrange using date format
+   (insert "#+PLOT: set:\"xrange ['2020-01-01':]\" set:\"xlabel 'Date'\" set:\"yrange [0:]\" set:\"ylabel 'Cases per 100,000'\"\n")
    (goto-char (point-max))
    (let ((p
 	  (if (eq population 0)
