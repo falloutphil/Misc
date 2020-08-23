@@ -18,6 +18,7 @@
    (keep-lines country (point) (point-max))
    (org-table-convert-region (point-min) (point-max))
    (org-table-insert-hline)
+   (insert "#+PLOT: title:\"Covid Cumulative Window New Cases\" deps:(10) type:2d with:histograms set:\"yrange [0:]\" set:\"xrange [0:]\" set:\"xlabel 'Day'\" set:\"ylabel 'Cases per 100,000'\"\n")
    (goto-char (point-max))
    (let ((p
 	  (if (eq population 0) 
@@ -30,7 +31,8 @@
 		     p p p p)))
    (org-ctrl-c-ctrl-c)
    (org-ctrl-c-ctrl-c) ;recalc (twice or graph is missing?!)
-   (org-beginning-of-line))
+   (goto-char (point-min))
+   (org-plot/gnuplot))
 
 (provide 'covid)
 ;;; covid ends here
