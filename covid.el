@@ -8,7 +8,6 @@
 
 (defun covid (country population start-date)
   "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers).  START-DATE dictates X-Axis start."
-   ;(interactive "sCountry Name?  \nnPopulation or 0? ")
    (interactive (list (read-string "Country? " "GB")
 		      (read-number "Population or 0 ? " 0)
 		      (read-string "Start Date? " "2020-01-01")))
