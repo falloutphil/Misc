@@ -36,7 +36,9 @@
    (org-ctrl-c-ctrl-c)
    (org-ctrl-c-ctrl-c) ;recalc (twice or graph is missing?!)
    (goto-char (point-min))
-   (org-plot/gnuplot))
+   (when (require 'gnuplot nil 'noerror)
+     (org-plot/gnuplot)))
+   
 
 (provide 'covid)
 ;;; covid ends here
