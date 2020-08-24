@@ -6,9 +6,12 @@
 (require 'org)
 (require 'json)
 
+(defvar country-list
+      (mapcar (lambda (json) (cdr (elt json 0))) (json-read-file "https://restcountries.eu/rest/v2/all?fields=name")))
+
 (defun covid (country population start-date)
   "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers).  START-DATE dictates X-Axis start."
-   (interactive (list (read-string "Country? " "GB")
+   (interactive (list (ido-completing-read "Country? " country-list)
 		      (read-number "Population or 0 ? " 0)
 		      (read-string "Start Date? " "2020-01-01")))
    (switch-to-buffer (format "%s covid" country))
