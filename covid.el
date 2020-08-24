@@ -216,12 +216,12 @@
    (Zambia . 17861034)
    (Zimbabwe . 14645473)))
 
-(defvar country-list
-  (map-keys country-population-alist))
+(defvar country-string-list
+  (mapcar 'symbol-name (map-keys country-population-alist)))
 
 (defun covid (country start-date)
   "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers).  START-DATE dictates X-Axis start."
-  (interactive (list (ido-completing-read "Country? " country-list)
+  (interactive (list (ido-completing-read "Country? " country-string-list)
 		     (read-string "Start Date? " "2020-01-01")))
   (switch-to-buffer (format "%s covid" country))
   (org-mode)
