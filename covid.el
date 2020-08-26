@@ -222,7 +222,8 @@
 (defun covid (country start-date)
   "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers).  START-DATE dictates X-Axis start."
   (interactive (list (ido-completing-read "Country? " country-list)
-		     (read-string "Start Date? " "2020-01-01")))
+		     (org-read-date nil nil nil "Plot Start Date? "
+				    (org-time-string-to-time "2020-01-01"))))
   (switch-to-buffer (format "%s covid" country))
   (org-mode)
   (url-handler-mode t)
