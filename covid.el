@@ -4,9 +4,10 @@
 
 ;;; Code:
 (require 'org)
+(require 'rx)
 
 ;; Static taken from ECDC daily covid data
-(defvar country-population-alist
+(defvar covid-country-population-alist
   '(("Afghanistan" . 38041757)
     ("Albania" . 2862427)
     ("Algeria" . 43053054)
@@ -216,12 +217,12 @@
     ("Zambia" . 17861034)
     ("Zimbabwe" . 14645473)))
   
-(defvar country-list
-  (map-keys country-population-alist))
+(defvar covid-country-list
+  (map-keys covid-country-population-alist))
 
-(defun covid (country start-date)
+(defun covid-country-history (country start-date)
   "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers).  START-DATE dictates X-Axis start."
-  (interactive (list (ido-completing-read "Country? " country-list)
+  (interactive (list (ido-completing-read "Country? " covid-country-list)
 		     (org-read-date nil nil nil "Plot Start Date? "
 				    (org-time-string-to-time "2020-01-01"))))
   (switch-to-buffer (format "%s covid" country))
@@ -240,7 +241,7 @@
   (insert (format "#+PLOT: set:\"xrange ['%s':]\" set:\"xlabel 'Date'\" set:\"yrange [0:]\" set:\"ylabel 'Cases per 100,000'\"\n" start-date))
   (goto-char (point-max))
   (let ((p (/ 100000.0 (cdr (assoc country
-				 country-population-alist)))))
+				   covid-country-population-alist)))))
     ;; Zero data until last element of initial window, last element is then just copied (and scaled),
     ;; after that it's the difference between the last and first cumulative values in the window.
     (insert (format "#+TBLFM: @2$9..@14$9 = 0 :: @15$9 =  $6 * %f :: @16$9..@>$9 = ($6 - @-14$6) * %f :: @2$10..@7$10 = 0 :: @8$10 =  $6 * %f :: @9$10..@>$10 = ($6 - @-7$6) * %f :: $11 = '(orgtbl-uc-draw-grid $10 0 100 40)"
@@ -251,6 +252,23 @@
   (when (require 'gnuplot nil 'noerror)
     (org-plot/gnuplot)))
 
+;; Using table aggregation package you can sum the values using:
+;; #+BEGIN: aggregate :table "covid" :cols "Country vsum('Cumulative_cases')"
+;; Find a way of using "a - (calc-alt-summation) [asum]" to find the difference?
+(defun covid-latest-global ()
+  (interactive)
+  (switch-to-buffer (format "covid"))
+  (org-mode)
+  (url-handler-mode t)
+  (insert-file-contents "http://covid19.who.int/WHO-COVID-19-global-data.csv")
+  (move-end-of-line nil)
+  (insert ",7 day")
+  ;; Keep data for all countries from yesterday and one week earlier
+  (let ((week-ago-string (format-time-string "%Y-%m-%d" (time-subtract (current-time) (days-to-time 8))))
+	(yesterday-string (format-time-string "%Y-%m-%d" (time-subtract (current-time) (days-to-time 1)))))
+    (keep-lines (rx (or (eval yesterday-string) (eval week-ago-string))) (point) (point-max)))
+  (org-table-convert-region (point-min) (point-max))
+  (org-table-insert-hline))
 
 (provide 'covid)
 ;;; covid ends here
