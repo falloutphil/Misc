@@ -24,7 +24,7 @@ MSOA_URL = 'https://www.ons.gov.uk/file?uri=%2fpeoplepopulationandcommunity%2fpo
 with requests.get(MSOA_URL) as r:
     with ZipFile(io.BytesIO(r.content)) as zf:
         msoa_df = pd.read_excel(
-            io.BytesIO(zf.read(zf.namelist()[0])),
+            io.BytesIO(zf.read(zf.namelist()[0])), # only one file in the zip
             sheet_name='Mid-2019 Persons',
             header=4)
 print(msoa_df.head())
