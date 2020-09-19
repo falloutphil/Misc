@@ -2,6 +2,13 @@
 
 # Calculate the 7-day cumulative case rate of UK regions
 
+# Some differences are seen with other sources, eg:
+# https://www.wigan.gov.uk/Docs/PDF/Resident/Crime-Emergencies/COVID19-Weekly-Tracker.pdf
+# Some reasons could be
+# * You can back-out the population used and it is slightly different
+# * This seems to use week-ending on a Friday, not a Saturday or Sunday - so perhaps the 7-day window is being used are out of phase.
+# * I have assumed any 0-2 cases are in fact 0 cases - so my results should be if anything more optimistic!
+
 from zipfile import ZipFile
 import io
 import requests
