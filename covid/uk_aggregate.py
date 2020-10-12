@@ -66,8 +66,9 @@ covid_df = covid_df.join(LA_POP, on='LA', how='left')
 final_df = pd.DataFrame()
 for _, la_df in covid_df.groupby('LA', as_index=False):
     df = la_df.copy()
-    df['7-day Cumulative Cases'] = df['Cases'].rolling(min_periods=1, window=7).sum()
-    df['7-day per 100k'] = df['7-day Cumulative Cases'] * 100000 / df['Population']
+    df['2-week Cumulative Cases'] = df['Cases'].rolling(min_periods=2, window=7).sum()
+    df['1-week per 100k'] = df['Cases'] * 100000 / df['Population']
+    df['2-week per 100k'] = df['2-week Cumulative Cases'] * 100000 / df['Population']
     final_df = final_df.append(df)
 print(final_df.head())
-final_df.to_csv('/tmp/uk.csv', index=False)
+final_df.to_csv('/tmp/uk_12_10.csv', index=False)
