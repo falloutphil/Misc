@@ -220,11 +220,12 @@
 (defvar covid-country-list
   (map-keys covid-country-population-alist))
 
-(defun covid-country-history (country start-date)
-  "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers).  START-DATE dictates X-Axis start."
+(defun covid-country-history (country start-date max-cases)
+  "Helper function to get covid details from COUNTRY.  If POPULATION is non-zero this is used directly (eg to match ECDC numbers).  START-DATE dictates X-Axis start. MAX-CASES dictates Y-Axis scale for ASCII plots."
   (interactive (list (ido-completing-read "Country? " covid-country-list)
 		     (org-read-date nil nil nil "Plot Start Date? "
-				    (org-time-string-to-time "2020-01-01"))))
+				    (org-time-string-to-time "2020-01-01"))
+		     (read-number "Max Cases? " 1000)))
   (switch-to-buffer (format "%s covid" country))
   (org-mode)
   (url-handler-mode t)
@@ -244,7 +245,7 @@
 				   covid-country-population-alist)))))
     ;; Zero data until last element of initial window, last element is then just copied (and scaled),
     ;; after that it's the difference between the last and first cumulative values in the window.
-    (insert (format "#+TBLFM: @2$9..@14$9 = 0 :: @15$9 =  $6 * %f :: @16$9..@>$9 = ($6 - @-14$6) * %f :: @2$10..@7$10 = 0 :: @8$10 =  $6 * %f :: @9$10..@>$10 = ($6 - @-7$6) * %f :: @2$11 = 0 :: @3$11..@>$11 = vmax([$10 @-1]) :: $12 = '(orgtbl-uc-draw-grid $10 0 1000 40)"
+    (insert (format "#+TBLFM: @2$9..@14$9 = 0 :: @15$9 =  $6 * %f :: @16$9..@>$9 = ($6 - @-14$6) * %f :: @2$10..@7$10 = 0 :: @8$10 =  $6 * %f :: @9$10..@>$10 = ($6 - @-7$6) * %f :: @2$11 = 0 :: @3$11..@>$11 = vmax([$10 @-1]) :: $12 = '(orgtbl-uc-draw-grid $10 0 max-cases 40)"
 		    p p p p)))
   (org-ctrl-c-ctrl-c)
   (org-ctrl-c-ctrl-c) ;recalc (twice or graph is missing?!)
