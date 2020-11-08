@@ -5,7 +5,6 @@
 ;;; Code:
 (require 'org)
 (require 'rx)
-(require 'calc-stat) ;; calc-vector-max (vmax)
 
 ;; Static taken from ECDC daily covid data
 (defvar covid-country-population-alist
