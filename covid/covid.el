@@ -4,7 +4,6 @@
 
 ;;; Code:
 (require 'org)
-(require 'rx)
 
 ;; Static taken from ECDC daily covid data
 (defvar covid-country-population-alist
