@@ -253,23 +253,5 @@
   (when (require 'gnuplot nil 'noerror)
     (org-plot/gnuplot)))
 
-;; Using table aggregation package you can sum the values using:
-;; #+BEGIN: aggregate :table "covid" :cols "Country vsum('Cumulative_cases')"
-;; Find a way of using "a - (calc-alt-summation) [asum]" to find the difference?
-(defun covid-latest-global ()
-  (interactive)
-  (switch-to-buffer (format "covid"))
-  (org-mode)
-  (url-handler-mode t)
-  (insert-file-contents "http://covid19.who.int/WHO-COVID-19-global-data.csv")
-  (move-end-of-line nil)
-  (insert ",7 day")
-  ;; Keep data for all countries from yesterday and one week earlier
-  (let ((week-ago-string (format-time-string "%Y-%m-%d" (time-subtract (current-time) (days-to-time 8))))
-	(yesterday-string (format-time-string "%Y-%m-%d" (time-subtract (current-time) (days-to-time 1)))))
-    (keep-lines (rx (or (eval yesterday-string) (eval week-ago-string))) (point) (point-max)))
-  (org-table-convert-region (point-min) (point-max))
-  (org-table-insert-hline))
-
 (provide 'covid)
 ;;; covid ends here
