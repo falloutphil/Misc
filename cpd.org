@@ -55,6 +55,7 @@
 	 (heading (ido-completing-read "Goal: " goals nil t)))
     (goto-char 0)
     (search-forward (format "* _%s_" heading) nil t)))
+
 (setq org-capture-templates
       '(("g" "Goal" entry 
 	 (file buffer-file-name)
