@@ -20,6 +20,8 @@
 | _My Test Goal_       | 1/2      |                        |                        | Some Skill | Become confident in applying blah blah | Fill in after completing     |
 | \_  Another Example  | Pending  |                        |                        | Lecture    | More insight into specifics of blah    | Better understanding of blah |
 | \_  Example Activity | Complete | [2020-06-19 Fri 21:01] | [2020-06-19 Fri 21:01] | Book       | Learn basics of blah blah              | Did I gain a grounding?      |
+|----------------------+----------+------------------------+------------------------+------------+----------------------------------------+------------------------------|
+| Config               |          |                        |                        |            |                                        |                              |
 #+END:
 
 #+TODO: Pending(p) In-Progress(i) Complete(c)
@@ -50,26 +52,26 @@
    "Helper function to position point at parent goal for given activity."
   (interactive)
   (let* ((goals (org-map-entries
-		 '(lambda () (nth 1 (split-string (org-entry-get nil "ITEM") "_"))) ;; takes whats between the '_'
-		 "LEVEL=1-config")) ;; top level headlines, minus config tags
-	 (heading (ido-completing-read "Goal: " goals nil t)))
+                 '(lambda () (nth 1 (split-string (org-entry-get nil "ITEM") "_"))) ;; takes whats between the '_'
+                 "LEVEL=1-config")) ;; top level headlines, minus config tags
+         (heading (ido-completing-read "Goal: " goals nil t)))
     (goto-char 0)
     (search-forward (format "* _%s_" heading) nil t)))
 
 (setq org-capture-templates
       '(("g" "Goal" entry 
-	 (file buffer-file-name)
-	 "* _%^{Goal}_ [/] :noexport: %^{TYPE}p %^{OUTCOME}p %^{RETROSPECTIVE}p" :prepend t)
-	("a" "Activity" entry
-	 (file+function buffer-file-name set-activity-pos-from-goal)
-	 "** Pending %^{Activity} %^{TYPE}p %^{OUTCOME}p %^{RETROSPECTIVE}p" :prepend t)))
+         (file buffer-file-name)
+         "* _%^{Goal}_ [/] :noexport: %^{TYPE}p %^{OUTCOME}p %^{RETROSPECTIVE}p" :prepend t)
+        ("a" "Activity" entry
+         (file+function buffer-file-name set-activity-pos-from-goal)
+         "** Pending %^{Activity} %^{TYPE}p %^{OUTCOME}p %^{RETROSPECTIVE}p" :prepend t)))
 
 (defun org-columns--summary-status-count (statuses _)
   "Summarise statuses with a Complete cookie."
   (format "%d/%d"
-	  (cl-count-if (lambda (b) (string-equal b "Complete"))
-		       statuses)
-	  (length statuses)))
+          (cl-count-if (lambda (b) (string-equal b "Complete"))
+                       statuses)
+          (length statuses)))
 
 
 (set (make-local-variable 'org-columns-summary-types)
@@ -78,7 +80,7 @@
 (defun log-todo-started-date (&rest ignore)
   "Log TODO creation time in the property drawer under the key 'STARTED'."
   (when (and (string-equal (org-get-todo-state) "In-Progress")
-	     (not (org-entry-get nil "STARTED")))
+             (not (org-entry-get nil "STARTED")))
     (org-entry-put nil "STARTED" (format-time-string "[%Y-%m-%d %a %H:%M]"))))
 
 (add-hook 'org-after-todo-state-change-hook #'log-todo-started-date nil t)
