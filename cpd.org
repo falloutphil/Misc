@@ -58,6 +58,10 @@
     (goto-char 0)
     (search-forward (format "* _%s_" heading) nil t)))
 
+;; Note in org 9.4.4 ido seems to previous completions
+;; as the only accepted property values!
+;; C-b cancels this if it is unhelpful - as it frequently
+;; is with Outcomes and Retrospectives!
 (setq org-capture-templates
       '(("g" "Goal" entry 
          (file buffer-file-name)
