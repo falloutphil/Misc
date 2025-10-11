@@ -196,7 +196,7 @@ cmd_init() {
 #!/usr/bin/env bash
 set -Eeuo pipefail
 # Force MCP server to use this project's DB
-export CHROMA_MCP_DIR="\${CHROMA_MCP_DIR:-"$DB_DIR"}"
+export CHROMA_MCP_DIR="\${CHROMA_MCP_DIR:-$DB_DIR}"
 exec chroma-mcp "\$@"
 SH
     chmod +x "$WRAPPER"
@@ -397,11 +397,12 @@ cmd_add_mcp() {
   need_cmd claude
   [[ -x "$WRAPPER" ]] || die "Wrapper not found: $WRAPPER (run init first)"
 
-  # If a tool with same name exists, Claude will prompt/override; we just call add.
+  log "Ensuring no stale MCP named '$MCP_NAME' remains…"
+  claude remove mcp "$MCP_NAME" >/dev/null 2>&1 || true
+
   log "Registering Claude MCP: $(bold "$MCP_NAME")"
   claude add mcp "$MCP_NAME" --command "$WRAPPER"
   ok "MCP registered: $MCP_NAME (command: $WRAPPER)"
-  echo "Tip: enable it in Claude Code, or remove with: claude remove mcp $MCP_NAME"
 }
 
 cmd_status() {
