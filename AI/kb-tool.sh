@@ -29,6 +29,7 @@
 # Requirements:
 #   - bash, python3, pipx, claude CLI (for add-mcp), and system libs needed by PyMuPDF
 #   - chroma-mcp will be installed by `install`
+#   - you may want to add a CLAUDE.md file to the root of your project to tell Claude about the MCP tool
 #
 # Usage examples:
 #   ./kb-tool.sh all
@@ -121,6 +122,7 @@ Notes:
   - The ingest step writes a manifest.json file in the DB dir for selective updates and orphan GC.
   - Incremental ingest: unchanged PDFs (by digest) are skipped; changed PDFs are re-embedded in place.
   - After importing a DB (no PDFs present), either skip ingest or run with --gc-orphans 0; ***otherwise missing-source GC will delete data***.
+  - Add a CLAUDE.md file to the root of your project to tell Claude about this and any other MCP tools you are using.
 
 USAGE
 }
