@@ -2,6 +2,12 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Philip Beadling
 
+# Quick install:
+#   curl -fsSLo kb-tool.sh https://raw.githubusercontent.com/falloutphil/Misc/master/AI/kb-tool.sh
+#   chmod +x kb-tool.sh && ./kb-tool.sh help
+# Optional install to PATH:
+#   install -Dm755 kb-tool.sh ~/.local/bin/kb-tool.sh
+
 # kb-tool.sh — Project-scoped Chroma MCP toolkit for Claude Code
 #
 # Features:
@@ -11,6 +17,8 @@
 #   - add-mcp : register a Claude MCP that uses the project-local DB (wrapper)
 #   - status  : show current config & sanity checks
 #   - all     : install + init + ingest + add-mcp
+#   - export  : dump ChromaDB and settings to tarball to copy elsewhere
+#   - import  : install an exported ChromaDB and settings (follow with init and add-mcp)
 #
 # Design principles:
 #   - Per-project isolation by default (DB lives in $PROJECT_DIR/.chroma)
@@ -102,10 +110,17 @@ Examples:
   ./kb-tool.sh export --file /tmp/myproj-kb.tar.gz
   ./kb-tool.sh import --file /tmp/myproj-kb.tar.gz
 
+  # After import, register the MCP (no ingest needed):
+  ./kb-tool.sh init && ./kb-tool.sh add-mcp
+  # If you want to ADD new PDFs to an imported DB (keep old embeddings intact):
+  ./kb-tool.sh ingest --gc-orphans 0
+
 Notes:
   - "install" uses pipx: pipx install chroma-mcp && pipx runpip chroma-mcp install PyMuPDF chromadb>=1.0.10
   - The wrapper bin/chroma-mcp-here exports CHROMA_MCP_DIR to ensure the MCP uses the same DB.
   - The ingest step writes a manifest.json file in the DB dir for selective updates and orphan GC.
+  - Incremental ingest: unchanged PDFs (by digest) are skipped; changed PDFs are re-embedded in place.
+  - After importing a DB (no PDFs present), either skip ingest or run with --gc-orphans 0; ***otherwise missing-source GC will delete data***.
 
 USAGE
 }
@@ -347,6 +362,12 @@ if os.path.isdir(DOC_DIR):
             pdfs.append(os.path.join(DOC_DIR, f))
 
 print("Ingesting:", [os.path.basename(p) for p in pdfs])
+
+# SAFETY: If no PDFs present but we have a manifest (typical after DB import),
+# disable orphan GC to avoid nuking the imported collection.
+if GC_ORPHANS and not pdfs and manifest:
+    print("⚠ No PDFs found, but manifest exists — disabling orphan GC to avoid deleting imported data.")
+    GC_ORPHANS = False
 
 if GC_ORPHANS and manifest:
     missing = [src for src in list(manifest.keys()) if not os.path.exists(src)]
