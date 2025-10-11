@@ -3,11 +3,10 @@
 # And I believe it will delete textbooks you remove from the dir
 # It creates a manifest.json file
 
-# NOTE: It assumes you've installed chroma-mcp via pipx
-# And added to it's venv the following PDF parser afterwards:
+# Before running make sure you've installed chroma-mcp 
+# with pipx and squirted in a PDF reader!
+# pipx install chroma-mcp
 # pipx runpip chroma-mcp install --upgrade "chromadb>=1.0.10" PyMuPDF
-
-# TODO: Just make it regular python script one day!
 
 VENV="$HOME/.local/pipx/venvs/chroma-mcp"
 "$VENV/bin/python" - <<'PY'
