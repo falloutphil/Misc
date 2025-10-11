@@ -452,10 +452,10 @@ cmd_add_mcp() {
   [[ -x "$WRAPPER" ]] || die "Wrapper not found: $WRAPPER (run init first)"
 
   log "Ensuring no stale MCP named '$MCP_NAME' remains…"
-  claude remove mcp "$MCP_NAME" >/dev/null 2>&1 || true
+  claude mcp remove "$MCP_NAME" >/dev/null 2>&1 || true
 
   log "Registering Claude MCP: $(bold "$MCP_NAME")"
-  claude add mcp "$MCP_NAME" --command "$WRAPPER"
+  claude mcp add "$MCP_NAME" "$WRAPPER"
   ok "MCP registered: $MCP_NAME (command: $WRAPPER)"
 }
 
