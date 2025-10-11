@@ -57,6 +57,8 @@ CHUNK_SIZE=900
 CHUNK_OVERLAP=150
 BATCH=256
 GC_ORPHANS=1
+EMBED_MODEL=""
+FILE_PATH=""
 
 # Derived defaults happen later (need PROJECT_DIR)
 
@@ -72,6 +74,8 @@ Commands:
   ingest            Ingest PDFs from textbooks/ to the project-local Chroma DB.
   add-mcp           Register a Claude MCP that points at the project DB (wrapper).
   status            Print resolved paths and environment checks.
+  export            Create a compressed tarball of the project-local DB for transfer.
+  import            Import a previously exported tarball into the project DB dir.
   all               Run: install -> init -> ingest -> add-mcp.
   help              Show this help.
 
@@ -85,16 +89,20 @@ Global options (apply to most commands):
   --chunk-overlap N       Chunk overlap (default: 150)
   --batch N               Upsert batch size (default: 256)
   --gc-orphans 0|1        Remove DB docs for missing PDFs (default: 1)
+  --embed-model NAME      Embedding model selector, e.g. "sentence:BAAI/bge-small-en-v1.5"
+  --file PATH             For export/import: output or input tar.gz path
 
 Examples:
   ./kb-tool.sh all
   ./kb-tool.sh ingest --project-dir ~/git/myproj --chunk-size 950 --chunk-overlap 220
   ./kb-tool.sh add-mcp --mcp-name textbooks-ml-papers
+  ./kb-tool.sh export --file /tmp/myproj-kb.tar.gz
+  ./kb-tool.sh import --file /tmp/myproj-kb.tar.gz
 
 Notes:
   - "install" uses pipx: pipx install chroma-mcp && pipx runpip chroma-mcp install PyMuPDF chromadb>=1.0.10
   - The wrapper bin/chroma-mcp-here exports CHROMA_MCP_DIR to ensure the MCP uses the same DB.
-  - The ingest step writes a manifest.json into the DB dir for selective updates and orphan GC.
+  - The ingest step writes a manifest.json file in the DB dir for selective updates and orphan GC.
 
 USAGE
 }
@@ -115,6 +123,8 @@ while [[ $# -gt 0 ]]; do
     --chunk-overlap) CHUNK_OVERLAP="${2:?}"; shift 2;;
     --batch) BATCH="${2:?}"; shift 2;;
     --gc-orphans) GC_ORPHANS="${2:?}"; shift 2;;
+    --embed-model) EMBED_MODEL="${2:?}"; shift 2;;
+    --file) FILE_PATH="${2:?}"; shift 2;;
     -h|--help) usage; exit 0;;
     *) die "Unknown option: $1";;
   esac
@@ -164,6 +174,10 @@ try:
   import fitz  # PyMuPDF
 except Exception:
   ok = False
+try:
+  import sentence_transformers  # required if using SentenceTransformerEmbeddingFunction
+except Exception:
+  ok = False
 sys.exit(0 if ok else 1)
 PY
   then
@@ -182,8 +196,13 @@ cmd_install() {
     ok "chroma-mcp already installed"
   fi
   log "Injecting/Upgrading Python deps into chroma-mcp venv…"
-  pipx runpip chroma-mcp install --upgrade "chromadb>=1.0.10" PyMuPDF || die "pipx runpip failed"
-  ok "Python deps present (chromadb, PyMuPDF)"
+  # Base deps (no GPU stuff here)
+  pipx runpip chroma-mcp install --upgrade "chromadb>=1.0.10" PyMuPDF || die "pipx runpip failed (base deps)"
+  # Install CPU-only PyTorch FIRST so sentence-transformers reuses it (no CUDA/NVIDIA wheels)
+  pipx runpip chroma-mcp install --upgrade --index-url https://download.pytorch.org/whl/cpu torch || die "pipx runpip failed (torch cpu)"
+  # Now sentence-transformers (will not pull CUDA because torch is already satisfied)
+  pipx runpip chroma-mcp install --upgrade sentence-transformers || die "pipx runpip failed (sentence-transformers)"
+  ok "Python deps present (chromadb, PyMuPDF, torch CPU, sentence-transformers)"
 }
 
 cmd_init() {
@@ -244,9 +263,11 @@ cmd_ingest() {
   OVERLAP="$CHUNK_OVERLAP" \
   BATCH="$BATCH" \
   GC_ORPHANS="$GC_ORPHANS" \
+  EMBED_MODEL="${EMBED_MODEL:-sentence:BAAI/bge-small-en-v1.5}" \
   "$pybin" - <<'PY'
 import os, json, hashlib, time
 import chromadb, fitz
+from chromadb.utils import embedding_functions as ef
 
 def xdg_data_home():
     return os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
@@ -259,11 +280,29 @@ CHUNK    = int(os.environ.get("CHUNK", "900"))
 OVERLAP  = int(os.environ.get("OVERLAP", "150"))
 BATCH    = int(os.environ.get("BATCH", "256"))
 GC_ORPHANS = os.environ.get("GC_ORPHANS", "1") not in ("0", "false", "False")
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "default").strip()
 MANIFEST = os.path.join(DATA_DIR, "manifest.json")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 client = chromadb.PersistentClient(path=DATA_DIR)
-coll = client.get_or_create_collection(COLL)
+
+# Embedding selection:
+# Default here is set by the caller ABOVE to "sentence:BAAI/bge-small-en-v1.5" for STEM (CS/Math/Eng) textbooks:
+# - better recall/precision on technical jargon & definitions than MiniLM default
+# - modest CPU/RAM overhead vs MiniLM
+# NOTE: If the call did not set EMBED_MODEL (it does here!) then you get the default ChromaDB model as per below
+# which is MiniLM via ONNX.
+# NOTE: The caller of the caller - i.e. you can set the default or any model using EMBED_MODEL=default kb-init .......
+# Note: RAM/latency is paid mainly during *ingest* (embedding PDFs) and *query embedding* at retrieval time.
+# Generation cost isn't relevant here (we're not generating text in this script).
+embed_fn = None
+if EMBED_MODEL == "default":
+    embed_fn = ef.DefaultEmbeddingFunction()
+elif EMBED_MODEL.startswith("sentence:"):
+    model_name = EMBED_MODEL.split(":", 1)[1]
+    embed_fn = ef.SentenceTransformerEmbeddingFunction(model_name=model_name)
+
+coll = client.get_or_create_collection(COLL, embedding_function=embed_fn)
 
 def file_digest(path, block=1024*1024):
     h = hashlib.sha1()
@@ -388,6 +427,21 @@ except Exception:
     cnt = "unknown"
 print("Total chunks in collection (approx):", cnt)
 print("Done. Added/updated:", total_added)
+
+# Persist minimal metadata for export/import & audit
+try:
+    meta = {
+        "collection": COLL,
+        "embed_model": EMBED_MODEL,
+        "chunk": CHUNK,
+        "overlap": OVERLAP,
+        "batch": BATCH,
+        "created_or_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    with open(os.path.join(DATA_DIR, "kb-meta.json"), "w") as f:
+        json.dump(meta, f, indent=2, sort_keys=True)
+except Exception as e:
+    print(f"! failed to write kb-meta.json: {e}")
 PY
 
   ok "Ingest finished"
@@ -434,6 +488,32 @@ EOF
   [[ -x "$WRAPPER" ]] && ok "wrapper exists" || warn "wrapper missing (run init): $WRAPPER"
 }
 
+cmd_export() {
+  need_cmd tar
+  mkdir -p "$PROJECT_DIR"
+  local out="${FILE_PATH:-$PROJECT_DIR/kb-export-$PROJECT_BASENAME.tar.gz}"
+  log "Creating export archive: $out"
+  [[ -d "$DB_DIR" ]] || die "DB dir not found: $DB_DIR (run ingest first)"
+  # Pack the contents of DB_DIR so import can restore directly into $DB_DIR
+  tar -C "$DB_DIR" -czf "$out" .
+  ok "Export complete → $out"
+}
+
+cmd_import() {
+  need_cmd tar
+  [[ -n "${FILE_PATH:-}" ]] || die "--file PATH is required for import"
+  [[ -f "$FILE_PATH" ]] || die "No such file: $FILE_PATH"
+  if [[ -d "$DB_DIR" ]]; then
+    local bak="${DB_DIR}.bak-$(date +%Y%m%d-%H%M%S)"
+    log "Existing DB found; backing up to $bak"
+    mv "$DB_DIR" "$bak"
+  fi
+  mkdir -p "$DB_DIR"
+  log "Importing archive $FILE_PATH → $DB_DIR"
+  tar -xzf "$FILE_PATH" -C "$DB_DIR"
+  ok "Import complete"
+}
+
 cmd_all() {
   cmd_install
   cmd_init
@@ -449,6 +529,8 @@ case "$COMMAND" in
   ingest)   cmd_ingest ;;
   add-mcp)  cmd_add_mcp ;;
   status)   cmd_status ;;
+  export)   cmd_export ;;
+  import)   cmd_import ;;
   all)      cmd_all ;;
   help|*)   usage ;;
 esac
