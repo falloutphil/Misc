@@ -216,7 +216,7 @@ cmd_init() {
 set -Eeuo pipefail
 # Force MCP server to use this project's DB
 export CHROMA_MCP_DIR="\${CHROMA_MCP_DIR:-$DB_DIR}"
-exec chroma-mcp "\$@"
+exec chroma-mcp --client-type persistent --data-dir "\$CHROMA_MCP_DIR" "\$@"
 SH
     chmod +x "$WRAPPER"
     ok "Wrote wrapper: $WRAPPER"
