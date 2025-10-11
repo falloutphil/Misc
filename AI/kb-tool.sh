@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Philip Beadling
+
 # kb-tool.sh — Project-scoped Chroma MCP toolkit for Claude Code
 #
 # Features:

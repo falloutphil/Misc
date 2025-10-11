@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Philip Beadling
+
 # Run this to sync the textbooks in textbooks/ with chromadb
 # It not re-add books already there
 # And I believe it will delete textbooks you remove from the dir
