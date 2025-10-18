@@ -18,7 +18,7 @@ All files referenced here live alongside this Markdown file for easy viewing in 
 ## Summary (what we found)
 
 - **Images:** Wayland/pgtk Emacs successfully pulls image bytes from the clipboard (often `image/bmp` when copied from Windows). X11 Emacs does **not** see image targets and retrieves **no image bytes**.  
-  → This matches WSLg’s current behavior: **Windows⇄Wayland supports bitmap/image**, **Windows⇄X11 does not**. citeturn1search0turn1search8
+  → This matches WSLg’s current behavior: **Windows⇄Wayland supports bitmap/image**, **Windows⇄X11 does not**. (see: [WSLg #236 maintainer comment](https://github.com/microsoft/wslg/issues/236) and [discussion in #642](https://github.com/microsoft/wslg/issues/642))
 
 - **Text:** Both Wayland and X11 paths retrieve text reliably (e.g., `UTF8_STRING`, `TEXT`, and on Wayland also `text/html`).
 
@@ -50,7 +50,7 @@ sudo apt install -y wl-clipboard xclip coreutils
   - `image/png`, `image/jpeg`, `image/bmp`, `image/tiff`
   - `text/html`, `text/plain;charset=utf-8`, `STRING`
 - Writes artifacts to `/tmp/wslg-cliptest` (images with sizes; text with lengths).
-- `wl-paste` is from the `wl-clipboard` package. citeturn0search3turn0search13
+- `wl-paste` is from the `wl-clipboard` package. — see [wl-clipboard GitHub](https://github.com/bugaevc/wl-clipboard) and the [`wl-paste` man page](https://man.archlinux.org/man/wl-paste.1.en)
 
 Run:
 ```bash
@@ -140,9 +140,9 @@ For each step, we ran **both** Emacs builds (Wayland/pgtk and X11) side-by-side.
 
 ## Why this matches WSLg design
 
-- WSLg’s architecture bridges clipboard data over RDP and **supports text/HTML/bitmap** for Wayland clients. citeturn0search1
-- Microsoft maintainers explicitly note: **“copy/paste of image data is only supported between Windows and Wayland native application, but not X11 application.”** (emphasis added). citeturn1search0
-- Another maintainer comment clarifies that **X11↔Windows is text-only (UTF‑8)**, while **Wayland** gets limited HTML and bitmap formats. citeturn1search8
+- WSLg’s architecture bridges clipboard data over RDP and **supports text/HTML/bitmap** for Wayland clients. ([WSLg architecture blog](https://devblogs.microsoft.com/commandline/wslg-architecture/))
+- Microsoft maintainers explicitly note: **“copy/paste of image data is only supported between Windows and Wayland native application, but not X11 application.”** (emphasis added). ([WSLg #236](https://github.com/microsoft/wslg/issues/236))
+- Another maintainer comment clarifies that **X11↔Windows is text-only (UTF‑8)**, while **Wayland** gets limited HTML and bitmap formats. ([WSLg #642](https://github.com/microsoft/wslg/issues/642))
 
 These statements line up exactly with what we saw: Wayland/pgtk can fetch image bytes; X11 cannot because no image targets are offered to Xwayland apps under WSLg.
 
@@ -168,7 +168,7 @@ These statements line up exactly with what we saw: Wayland/pgtk can fetch image 
 ### Wayland watcher (`watch-wayland.sh`)
 - Polls `wl-paste --list-types` and normalizes types (sorted/unique).
 - On change, prints the list and **pulls** a fixed set of types to files under `/tmp/wslg-cliptest`.
-- `wl-clipboard` is the supported tool for Wayland clipboards; it accepts exact MIME types. citeturn0search3
+- `wl-clipboard` is the supported tool for Wayland clipboards; it accepts exact MIME types. — see [wl-clipboard GitHub](https://github.com/bugaevc/wl-clipboard)
 
 ### X11 watcher (`watch-x11.sh`)
 - Polls `xclip -selection clipboard -t TARGETS -o`.
@@ -179,11 +179,11 @@ These statements line up exactly with what we saw: Wayland/pgtk can fetch image 
 
 ## References
 
-- **WSLg architecture:** overall clipboard support (text/HTML/bitmap via RDP). citeturn0search1  
-- **WSLg GitHub #236:** “image data only supported between Windows and Wayland, not X11.” (Maintainer comment). citeturn1search0  
-- **WSLg GitHub #642 (maintainer):** X11 is *text (UTF‑8) only*; Wayland supports limited HTML & bitmap in addition to text. citeturn1search8  
-- **`wl-clipboard` / `wl-paste` manual:** Wayland clipboard CLI and MIME handling. citeturn0search3turn0search13  
-- **Superuser thread (X11 clipboard under WSLg):** reports X11 ↔ Windows inconsistencies. citeturn1search1
+- **WSLg architecture:** overall clipboard support (text/HTML/bitmap via RDP). ([WSLg architecture blog](https://devblogs.microsoft.com/commandline/wslg-architecture/))  
+- **WSLg GitHub #236:** “image data only supported between Windows and Wayland, not X11.” (Maintainer comment). ([WSLg #236](https://github.com/microsoft/wslg/issues/236))  
+- **WSLg GitHub #642 (maintainer):** X11 is *text (UTF‑8) only*; Wayland supports limited HTML & bitmap in addition to text. ([WSLg #642](https://github.com/microsoft/wslg/issues/642))  
+- **`wl-clipboard` / `wl-paste` manual:** Wayland clipboard CLI and MIME handling. — see [wl-clipboard GitHub](https://github.com/bugaevc/wl-clipboard) and the [`wl-paste` man page](https://man.archlinux.org/man/wl-paste.1.en)  
+- **Superuser thread (X11 clipboard under WSLg):** reports X11 ↔ Windows inconsistencies. (see discussion: https://superuser.com/questions/1723016/clipboard-issues-with-windows-wsl2-gui-apps-wslg)
 
 ---
 
