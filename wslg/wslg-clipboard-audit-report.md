@@ -106,7 +106,7 @@ env GDK_BACKEND=x11 WAYLAND_DISPLAY= DISPLAY=:0 \
 
 ## Repro sequence and results
 
-For each step, we ran **both** Emacs builds (Wayland/pgtk and X11) side-by-side.
+For each step, we ran **both** Emacs builds (Wayland/pgtk and X11) side-by-side.  Not that the --eval isn't actually practical and stuff put on the clipboard before we start pgtk or x11 emacs often doesn't show - so we actually tested by starting each instance side by side after clearing the clipboard using the powershell command.  We would then put an image or text on the clipboard and immediately run `M-x ph/clipboard-audit-run` on both versions of emacs.
 
 1. **Baseline (empty clipboard)**  
    ![Baseline – both show no text or images](clipboard-baseline.png)
