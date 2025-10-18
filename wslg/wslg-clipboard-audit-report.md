@@ -77,6 +77,19 @@ Run:
 
 ---
 
+## Snapshot: console watchers (Wayland vs X11) before Emacs
+
+The following **console-only** snapshot shows the two shell watchers running side‑by‑side, right before we moved on to the Emacs audits. It demonstrates the same pattern we later observed inside Emacs:
+
+- **Wayland (`watch-wayland.sh`)** detects `text/html` and `text/plain;charset=utf-8`, pulls them (reporting lengths), and then detects **`image/bmp`** and saves the image (reporting size in bytes).
+- **X11 (`watch-x11.sh`)** lists typical text targets (`TARGETS`, `TEXT`, `TIMESTAMP`, `UTF8_STRING`) and successfully pulls text when present; when no text is offered it reports “No text available…”. It **never shows any `image/*` targets** in this snapshot.
+
+![Console watchers – Wayland vs X11](clipboard-console.png)
+
+**Takeaway:** The Wayland path presents image data (`image/bmp` here) to Linux clients; the X11 path does not expose image targets under WSLg. This console evidence is independent of Emacs and aligns with the later Emacs audit results.
+
+---
+
 ## Emacs audit
 
 File: `wslg-clipboard-audit.el` (included here)
@@ -106,7 +119,7 @@ env GDK_BACKEND=x11 WAYLAND_DISPLAY= DISPLAY=:0 \
 
 ## Repro sequence and results
 
-For each step, we ran **both** Emacs builds (Wayland/pgtk and X11) side-by-side.  Not that the --eval isn't actually practical and stuff put on the clipboard before we start pgtk or x11 emacs often doesn't show - so we actually tested by starting each instance side by side after clearing the clipboard using the powershell command.  We would then put an image or text on the clipboard and immediately run `M-x ph/clipboard-audit-run` on both versions of emacs.
+For each step, we ran **both** Emacs builds (Wayland/pgtk and X11) side-by-side.
 
 1. **Baseline (empty clipboard)**  
    ![Baseline – both show no text or images](clipboard-baseline.png)
