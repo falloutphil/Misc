@@ -7,8 +7,6 @@
     ('image/png  "png") ('image/jpeg "jpg") ('image/bmp "bmp") ('image/tiff "tiff")
     ('text/html  "html") (_ "txt")))
 
-(setq image-use-external-converter t)
-
 (defun ph/insert-image-bytes (bytes &optional mime)
   "Insert BYTES as an image, letting Emacs auto-detect; hint BMP if needed."
   (let* ((raw (if (multibyte-string-p bytes)
