@@ -7,24 +7,34 @@
     ('image/png  "png") ('image/jpeg "jpg") ('image/bmp "bmp") ('image/tiff "tiff")
     ('text/html  "html") (_ "txt")))
 
-(defun ph/insert-image-bytes (bytes ty)
-  (let* ((fmt (intern (substring (symbol-name ty) 6))) ; 'png, 'jpeg, etc.
-         (img (create-image bytes fmt t)))
-    (insert (propertize " " 'display img))
-    (insert (format "\n[Inserted %s]\n" ty))))
+(defun ph/insert-image-bytes (bytes)
+  "Insert BYTES as an image, letting Emacs auto-detect the format."
+  ;; EXACT SAME semantics as the proven 3 lines:
+  ;;   (setq img (create-image bytes nil t))
+  ;;   (insert-image img)
+  (let* ((img (create-image bytes nil t)))
+    (if img
+        (progn (insert-image img) (insert "\n[Inline render OK]\n"))
+      (insert "[Inline render failed]\n"))))
 
 (defun ph/targets (selection)
   "Return TARGETS as a list of symbols (or nil). Handles list/vector/atom."
   (let ((ts (ignore-errors (gui-get-selection selection 'TARGETS))))
-    (cond
-     ((null ts) nil)
-     ((vectorp ts) (append ts nil))   ;; vector -> list
-     ((listp ts) ts)                  ;; list -> as-is
-     (t (list ts)))))   
+    (cond ((null ts) nil)
+          ((vectorp ts) (append ts nil))
+          ((listp ts) ts)
+          (t (list ts)))))
 
 (defun ph/try-get (selection target)
   "Return BYTES/STRING from clipboard for TARGET or nil."
   (ignore-errors (gui-get-selection selection target)))
+
+(defun ph/first-common (candidates haystack)
+  "Return first symbol in CANDIDATES that is `memq' in HAYSTACK, else nil."
+  (catch 'found
+    (dolist (c candidates)
+      (when (memq c haystack) (throw 'found c)))
+    nil))
 
 (defun ph/clipboard-audit-run ()
   "Snapshot clipboard: env + targets; try image/* (even if TARGETS empty on pgtk); then text."
@@ -41,7 +51,8 @@
          (base (format "emacs-%s-%s" backend ts))
          (report (get-buffer-create "*clipboard-audit*"))
          (targets (ph/targets selection))
-         (image-types '(image/png image/bmp image/jpeg image/tiff))
+         ;; IMPORTANT: do NOT call this `image-types` (that shadows Emacs's global)
+         (clipboard-image-targets '(image/png image/bmp image/jpeg image/tiff))
          (report-path (expand-file-name (concat base ".log") logdir)))
 
     (unless (file-directory-p logdir) (make-directory logdir t))
@@ -64,26 +75,41 @@
       (insert "\n--- IMAGE ATTEMPT ---\n"))
 
     ;; Try images:
-    ;; - if TARGETS listed -> try those types
-    ;; - if pgtk and TARGETS empty -> still try common image types directly
+    ;; - if TARGETS listed -> prefer first image/* it advertises
+    ;; - if pgtk and TARGETS empty -> probe image/png directly
     (let* ((try-direct (eq window-system 'pgtk))
-           (image-saved nil))
-      (dolist (ty image-types)
-        (when (and (not image-saved)
-                   (or (member ty targets) try-direct))
-          (let ((bytes (ph/try-get selection ty)))
-            (with-current-buffer report
-              (when (and (stringp bytes) (> (length bytes) 0))
-                (let* ((ext (ph/ext-for-type ty))
-                       (img-path (expand-file-name (format "%s.%s" base ext) logdir)))
-                  (insert (format "Found %s (%d bytes)\n" ty (length bytes)))
-                  (let ((coding-system-for-write 'binary))
-                    (write-region bytes nil img-path nil 'silent))
-                  (insert (format "Saved image -> %s\n" img-path))
-                  (condition-case err
-                      (progn (ph/insert-image-bytes bytes ty) (insert "\n"))
-                    (error (insert (format "Render error: %S\n" err))))
-                  (setq image-saved t))))))))
+           (chosen-target
+            (or (ph/first-common clipboard-image-targets targets)
+                (and try-direct 'image/png)))
+           (bytes (and chosen-target (ph/try-get selection chosen-target))))
+      (with-current-buffer report
+        (cond
+         ((and (stringp bytes) (> (length bytes) 0))
+          (let* ((ext (ph/ext-for-type chosen-target))
+                 (img-path (expand-file-name (format "%s.%s" base ext) logdir))
+                 (itype (ignore-errors (image-type-from-data bytes)))
+                 (is-mb (multibyte-string-p bytes))
+                 ;; Pull the *real* Emacs-supported image-types (png/jpeg/…)
+                 (emacs-image-types (and (boundp 'image-types) image-types)))
+            (insert (format "Found %s (%d bytes)\n" chosen-target (length bytes)))
+            (insert (format "Debug: image-type-from-data=%S multibyte=%s emacs-image-types=%S\n"
+                            itype (if is-mb "t" "nil") emacs-image-types))
+            (message "[clipboard-audit] chosen=%S bytes=%d itype=%S mb=%s emacs-image-types=%S"
+                     chosen-target (length bytes) itype (if is-mb "t" "nil") emacs-image-types)
+            (let ((coding-system-for-write 'binary))
+              (write-region bytes nil img-path nil 'silent))
+            (insert (format "Saved image -> %s\n" img-path))
+            ;; Exact proven path: let Emacs auto-detect type from BYTES.
+            (condition-case err
+                (let ((img (create-image bytes nil t)))
+                  (if img
+                      (progn (insert-image img) (insert "\n[Inline render OK]\n\n"))
+                    (insert "[Inline render failed]\n\n")))
+              (error
+               (insert (format "Render error: %S\n\n" err))
+               (message "[clipboard-audit] render error: %S" err)))))
+         (t
+          (insert "No image available.\n\n")))))
 
     ;; Text attempt
     (with-current-buffer report
