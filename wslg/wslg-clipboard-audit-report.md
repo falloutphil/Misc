@@ -84,7 +84,7 @@ The following **console-only** snapshot shows the two shell watchers running sid
 - **Wayland (`watch-wayland.sh`)** detects `text/html` and `text/plain;charset=utf-8`, pulls them (reporting lengths), and then detects **`image/bmp`** and saves the image (reporting size in bytes).
 - **X11 (`watch-x11.sh`)** lists typical text targets (`TARGETS`, `TEXT`, `TIMESTAMP`, `UTF8_STRING`) and successfully pulls text when present; when no text is offered it reports “No text available…”. It **never shows any `image/*` targets** in this snapshot.
 
-![Console watchers – Wayland vs X11](09 windows clipboard console version.png)
+![Console watchers – Wayland vs X11](<09 windows clipboard console version.png>)
 
 **Takeaway:** The Wayland path presents image data (`image/bmp` here) to Linux clients; the X11 path does not expose image targets under WSLg. This console evidence is independent of Emacs and aligns with the later Emacs audit results.
 
