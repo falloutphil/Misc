@@ -3,7 +3,7 @@
 This report documents a reproducible audit of **Windows ⇄ WSLg** clipboard behavior for **text** and **images**, comparing **Wayland (pgtk)** vs **X11 (Xwayland)** clients. It includes:
 
 - Two shell watchers (`watch-wayland.sh`, `watch-x11.sh`) to observe clipboards without Emacs
-- An Emacs-side audit (`wslg-**FIXME-OLDNAME-clipboard-**audit.el`) that uses only native APIs
+- An Emacs-side audit (`wslg-clipboard-audit.el`) that uses only native APIs
 - Side‑by‑side screenshots of Emacs results:
   - `00 empty windows clipboard.png`
   - `01 image on windows clipboard.png`
