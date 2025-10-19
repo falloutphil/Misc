@@ -245,7 +245,7 @@ These statements line up exactly with what we saw: Wayland/pgtk can fetch image 
 - **WSLg GitHub #236:** “image data only supported between Windows and Wayland, not X11.” (Maintainer comment). ([WSLg #236](https://github.com/microsoft/wslg/issues/236))  
 - **WSLg GitHub #642 (maintainer):** X11 is *text (UTF‑8) only*; Wayland supports limited HTML & bitmap in addition to text. ([WSLg #642](https://github.com/microsoft/wslg/issues/642))  
 - **`wl-clipboard` / `wl-paste` manual:** Wayland clipboard CLI and MIME handling. — see [wl-clipboard GitHub](https://github.com/bugaevc/wl-clipboard) and the [`wl-paste` man page](https://man.archlinux.org/man/wl-paste.1.en)  
-- **Superuser thread (X11 clipboard under WSLg):** reports X11 ↔ Windows inconsistencies. (see discussion: https://superuser.com/questions/1723016/**FIXME-OLDNAME-clipboard-**issues-with-windows-wsl2-gui-apps-wslg)
+- **Superuser thread (X11 clipboard under WSLg):** reports X11 ↔ Windows inconsistencies. (see discussion: https://superuser.com/questions/1723016/clipboard-**issues-with-windows-wsl2-gui-apps-wslg)
 
 ---
 
@@ -262,10 +262,10 @@ These statements line up exactly with what we saw: Wayland/pgtk can fetch image 
 
 # 2) run Emacs audits (two terminals)
 # Wayland/pgtk
-/usr/local/bin/emacs -Q -l ./wslg-**FIXME-OLDNAME-clipboard-**audit.el --eval '(ph/**FIXME-OLDNAME-clipboard-**audit-run)'
+/usr/local/bin/emacs -Q -l ./wslg-clipboard-audit.el
 # X11 (force X11 backend)
 env GDK_BACKEND=x11 WAYLAND_DISPLAY= DISPLAY=:0 \
-  /usr/bin/emacs -Q -l ./wslg-**FIXME-OLDNAME-clipboard-**audit.el --eval '(ph/**FIXME-OLDNAME-clipboard-**audit-run)'
+  /usr/bin/emacs -Q -l ./wslg-clipboard-audit.el
 ```
 
 **Then copy in Windows:** image → text → image → text.  
