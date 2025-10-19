@@ -102,10 +102,13 @@ wl-copy < owl.png
 wl-copy < owl.bmp
 ```
 
-Results (from the Emacs audit), showing inline renders and saved artifacts:
+Results (from the Emacs audit), showing inline renders and saved artifacts using `wl-copy`:
 
-![Wayland injection – PNG](05 wl-copy owl png.png)
-![Wayland injection – BMP](06 wl-copy owl bmp.png)
+First a PNG:
+![Wayland injection – PNG](<05 wl-copy owl png.png>)
+
+Then a Windows Bitmap:
+![Wayland injection – BMP](<06 wl-copy owl bmp.png>)
 
 
 ### Console proof: injecting an image directly into the X11 clipboard
@@ -114,7 +117,7 @@ To verify our X11 watcher is capable of detecting and pulling **image** data whe
 
 ```bash
 # From the repo folder containing 09 windows clipboard console version.png
-xclip -selection clipboard -t image/png -i 09 windows clipboard console version.png -loops 1 &
+xclip -selection clipboard -t image/png -i '09 windows clipboard console version.png' -loops 1 &
 ```
 
 - `-t image/png` declares the correct MIME type.
@@ -124,11 +127,15 @@ xclip -selection clipboard -t image/png -i 09 windows clipboard console version.
 
 Meanwhile, as expected, the Wayland watcher didn’t see this injection because it was targeted at the **X11** clipboard only.
 
-![Console proof – X11 image injected with xclip](10 xclip console version success.png)
+![Console proof – X11 image injected with xclip](<10 xclip console version success.png>)
 
 **Bonus:** We also injected a BMP onto the X11 clipboard to confirm Emacs can render when a loader/convert is available:
 
-![Console proof – X11 BMP injected](08 xclip owl bmp.png)
+Here's PNG working on X11:
+![Console proof – X11 PNG injected into emacs](<07 xclip owl png.png>)
+
+And Here's Windows Bitmap working on X11:
+![Console proof – X11 BMP injected into emacs](<08 xclip owl bmp.png>)
 
 
 ## Emacs audit
@@ -145,13 +152,13 @@ How to run (two real GUI backends):
 
 **Wayland/pgtk (Emacs 30.1):**
 ```bash
-/usr/local/bin/emacs -Q -l ./wslg-**FIXME-OLDNAME-clipboard-**audit.el --eval '(ph/**FIXME-OLDNAME-clipboard-**audit-run)'
+/usr/local/bin/emacs -Q -l ./wslg-clipboard-audit.el
 ```
 
 **X11 (Xwayland, Emacs 28.2):**
 ```bash
 env GDK_BACKEND=x11 WAYLAND_DISPLAY= DISPLAY=:0 \
-  /usr/bin/emacs -Q -l ./wslg-**FIXME-OLDNAME-clipboard-**audit.el --eval '(ph/**FIXME-OLDNAME-clipboard-**audit-run)'
+  /usr/bin/emacs -Q -l ./wslg-clipboard-audit.el'
 ```
 
 > If Emacs reports a “Render error: Invalid image type 'bmp'”, that only means your Emacs was built without a BMP loader. The **raw bytes were still retrieved and saved**; convert with `convert file.bmp file.png` if needed.
@@ -163,26 +170,25 @@ env GDK_BACKEND=x11 WAYLAND_DISPLAY= DISPLAY=:0 \
 For each step, we ran **both** Emacs builds (Wayland/pgtk and X11) side-by-side.
 
 1. **Baseline (empty clipboard)**  
-   ![Baseline – both show no text or images](00 empty windows clipboard.png)  
-   ![Baseline – both show no text or images](00 empty windows clipboard.png)
+   ![Baseline – both show no text or images](<00 empty windows clipboard.png>)  
 
 2. **Copy an image in Windows** (e.g., Snipping Tool → Copy)  
    - **Wayland/pgtk**: `Found image/bmp (…)` and saved file to `/tmp/wslg-cliptest/...bmp`  
    - **X11**: No image targets; no image retrieved  
-   ![After copying an image – Wayland pulls BMP, X11 does not](01 image on windows clipboard.png)
+   ![After copying an image – Wayland pulls BMP, X11 does not](<01 image on windows clipboard.png>)
 
-3. **Copy text in Windows**  
+3. **Copy text in Windows (HTML)**  
    - **Both**: Pulled text successfully (Wayland often sees `text/html` + `text/plain;charset=utf-8`)  
-   ![After copying text – both pull text](02 html text on windows clipboard.png)
+   ![After copying text – both pull text](<02 html text on windows clipboard.png>)
 
 4. **Copy another image**  
    - **Wayland/pgtk**: Again retrieves image bytes and saves to file  
    - **X11**: Still no image targets  
-   ![Second image – Wayland pulls, X11 does not](03 another image on windows clipboard.png)
+   ![Second image – Wayland pulls, X11 does not](<03 another image on windows clipboard.png>)
 
-5. **Copy more text**  
+5. **Copy more text (Plain)**  
    - **Both**: Pulled text successfully  
-   ![Second text – both pull text](04 plain text on windows clipboard.png)
+   ![Second text – both pull text](<04 plain text on windows clipboard.png>)
 
 ### Notes from the runs
 - If an image is on the Windows clipboard **before** starting Emacs, the first pgtk audit sometimes shows `TARGETS: (none reported)` and no image fetch; **recopying** the image after Emacs is running consistently succeeds. This suggests a **targets/notification quirk** rather than missing data. (Our audit mitigates this by probing common `image/*` types directly.)
