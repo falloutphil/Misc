@@ -102,7 +102,7 @@ wl-copy < owl.png
 wl-copy < owl.bmp
 ```
 
-Results (from the Emacs audit), showing inline renders and saved artifacts using `wl-copy`:
+Results (from the Emacs audit), showing inline renders and saved artifacts using `wl-copy` - as expected the X11 Emacs build on the right picks up nothing from `wl-copy`:
 
 First a PNG:
 ![Wayland injection – PNG](<05 wl-copy owl png.png>)
@@ -113,7 +113,7 @@ Then a Windows Bitmap:
 
 ### Console proof: injecting an image directly into the X11 clipboard
 
-To verify our X11 watcher is capable of detecting and pulling **image** data when it’s actually present on the X11 clipboard (i.e., independent of the WSLg bridge), we **manually injected** a PNG onto the X11 clipboard:
+That's are well and good, but perhaps X11 just isn't capable of any image copying? To verify our X11 watcher is capable of detecting and pulling **image** data when it’s actually present on the X11 clipboard (i.e., independent of the WSLg bridge), we **manually injected** a PNG onto the X11 clipboard:
 
 ```bash
 # From the repo folder containing 09 windows clipboard console version.png
@@ -132,15 +132,16 @@ Meanwhile, as expected, the Wayland watcher didn’t see this injection because 
 **Bonus:** We also injected a BMP onto the X11 clipboard to confirm Emacs can render when a loader/convert is available:
 
 Here's PNG working on X11:
-![Console proof – X11 PNG injected into emacs](<07 xclip owl png.png>)
+![Emacs proof – X11 PNG injected](<07 xclip owl png.png>)
 
 And Here's Windows Bitmap working on X11:
-![Console proof – X11 BMP injected into emacs](<08 xclip owl bmp.png>)
+![Emacs proof – X11 BMP injected](<08 xclip owl bmp.png>)
 
+In both cases we don't see anything in Wayland/pgtk Emacs version as it doesn't listen to the X11 clipboard.
 
 ## Emacs audit
 
-File: `wslg-**FIXME-OLDNAME-clipboard-**audit.el` (included here)
+File: `wslg-clipboard-audit.el` (included here)
 
 What it does (only Emacs built-ins; **no** external tools):
 - Gathers environment and `TARGETS` using `gui-get-selection`.
