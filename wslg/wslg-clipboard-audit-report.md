@@ -90,6 +90,25 @@ The following **console-only** snapshot shows the two shell watchers running sid
 
 ---
 
+### Console proof: injecting an image directly into the X11 clipboard
+
+To verify our X11 watcher is capable of detecting and pulling **image** data when it’s actually present on the X11 clipboard (i.e., independent of the WSLg bridge), we **manually injected** a PNG onto the X11 clipboard:
+
+```bash
+# From the repo folder containing clipboard-console.png
+xclip -selection clipboard -t image/png -i clipboard-console.png -loops 1 &
+```
+
+- `-t image/png` declares the correct MIME type.
+- `-loops 1` keeps `xclip` alive as the X11 **selection owner** for one consumer (our watcher).
+
+**Result:** `watch-x11.sh` immediately reported the `image/png` target and attempted to pull it (see log line: *“image/png was advertised …”*). This demonstrates our script **does** detect image targets and would retrieve image bytes **if** the X11 clipboard exposed them via WSLg.
+
+Meanwhile, as expected, the Wayland watcher didn’t see this injection because it was targeted at the **X11** clipboard only.
+
+![Console proof – X11 image injected with xclip](clipboard-x11-console-prove-success.png)
+
+
 ## Emacs audit
 
 File: `wslg-clipboard-audit.el` (included here)
