@@ -14,6 +14,7 @@
     ('image/jpeg 'jpeg)
     ('image/bmp  'bmp)
     ('image/tiff 'tiff)
+    ('image/webp 'webp)
     (_           nil)))
 
 (defun ph/insert-image-bytes (bytes &optional mime)
