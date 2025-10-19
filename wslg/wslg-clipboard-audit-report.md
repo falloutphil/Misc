@@ -3,13 +3,13 @@
 This report documents a reproducible audit of **Windows ⇄ WSLg** clipboard behavior for **text** and **images**, comparing **Wayland (pgtk)** vs **X11 (Xwayland)** clients. It includes:
 
 - Two shell watchers (`watch-wayland.sh`, `watch-x11.sh`) to observe clipboards without Emacs
-- An Emacs-side audit (`wslg-clipboard-audit.el`) that uses only native APIs
+- An Emacs-side audit (`wslg-**FIXME-OLDNAME-clipboard-**audit.el`) that uses only native APIs
 - Side‑by‑side screenshots of Emacs results:
-  - `clipboard-baseline.png`
-  - `clipboard-image1.png`
-  - `clipboard-image2.png`
-  - `clipboard-text1.png`
-  - `clipboard-text2.png`
+  - `00 empty windows clipboard.png`
+  - `01 image on windows clipboard.png`
+  - `03 another image on windows clipboard.png`
+  - `02 html text on windows clipboard.png`
+  - `04 plain text on windows clipboard.png`
 
 All files referenced here live alongside this Markdown file for easy viewing in GitHub.
 
@@ -84,19 +84,37 @@ The following **console-only** snapshot shows the two shell watchers running sid
 - **Wayland (`watch-wayland.sh`)** detects `text/html` and `text/plain;charset=utf-8`, pulls them (reporting lengths), and then detects **`image/bmp`** and saves the image (reporting size in bytes).
 - **X11 (`watch-x11.sh`)** lists typical text targets (`TARGETS`, `TEXT`, `TIMESTAMP`, `UTF8_STRING`) and successfully pulls text when present; when no text is offered it reports “No text available…”. It **never shows any `image/*` targets** in this snapshot.
 
-![Console watchers – Wayland vs X11](clipboard-console.png)
+![Console watchers – Wayland vs X11](09 windows clipboard console version.png)
 
 **Takeaway:** The Wayland path presents image data (`image/bmp` here) to Linux clients; the X11 path does not expose image targets under WSLg. This console evidence is independent of Emacs and aligns with the later Emacs audit results.
 
 ---
+
+
+### Sanity check: injecting images directly on Wayland (wl-copy)
+
+To prove Wayland clients (pgtk Emacs) consume image payloads independently of Windows, we injected our test owl files directly into the Wayland clipboard:
+
+```bash
+# PNG
+wl-copy < owl.png
+# BMP
+wl-copy < owl.bmp
+```
+
+Results (from the Emacs audit), showing inline renders and saved artifacts:
+
+![Wayland injection – PNG](05 wl-copy owl png.png)
+![Wayland injection – BMP](06 wl-copy owl bmp.png)
+
 
 ### Console proof: injecting an image directly into the X11 clipboard
 
 To verify our X11 watcher is capable of detecting and pulling **image** data when it’s actually present on the X11 clipboard (i.e., independent of the WSLg bridge), we **manually injected** a PNG onto the X11 clipboard:
 
 ```bash
-# From the repo folder containing clipboard-console.png
-xclip -selection clipboard -t image/png -i clipboard-console.png -loops 1 &
+# From the repo folder containing 09 windows clipboard console version.png
+xclip -selection clipboard -t image/png -i 09 windows clipboard console version.png -loops 1 &
 ```
 
 - `-t image/png` declares the correct MIME type.
@@ -106,29 +124,16 @@ xclip -selection clipboard -t image/png -i clipboard-console.png -loops 1 &
 
 Meanwhile, as expected, the Wayland watcher didn’t see this injection because it was targeted at the **X11** clipboard only.
 
-![Console proof – X11 image injected with xclip](clipboard-x11-console-prove-success.png)
+![Console proof – X11 image injected with xclip](10 xclip console version success.png)
 
+**Bonus:** We also injected a BMP onto the X11 clipboard to confirm Emacs can render when a loader/convert is available:
 
-### Emacs proof: X11 image injection shows up in the Emacs audit
-
-We repeated the same **X11-only injection**, but this time verified it inside **Emacs (X11 build)** using the audit script:
-
-```bash
-# Inject a PNG directly into the X11 clipboard (no WSLg bridge involved)
-xclip -selection clipboard -t image/png -i clipboard-console.png -loops 1 &
-# Then, in the X11 Emacs window: M-x ph/clipboard-audit-run
-```
-
-**Result:** the Emacs audit on X11 lists `image/png` under **TARGETS**, retrieves the bytes, and saves `…/emacs-x11-<timestamp>.png`. (Inline rendering may show a “Invalid image type 'png'” if Emacs was built without a PNG loader, but the **raw bytes were captured and saved**.)
-
-This confirms the Emacs script is working correctly on X11 when image targets are present; the lack of images in Windows→X11 is therefore due to **WSLg not exposing image targets to X11**, not to Emacs.
-
-![Emacs proof – X11 image detected and saved](clipboard-x11-success-case-emacs.png)
+![Console proof – X11 BMP injected](08 xclip owl bmp.png)
 
 
 ## Emacs audit
 
-File: `wslg-clipboard-audit.el` (included here)
+File: `wslg-**FIXME-OLDNAME-clipboard-**audit.el` (included here)
 
 What it does (only Emacs built-ins; **no** external tools):
 - Gathers environment and `TARGETS` using `gui-get-selection`.
@@ -140,13 +145,13 @@ How to run (two real GUI backends):
 
 **Wayland/pgtk (Emacs 30.1):**
 ```bash
-/usr/local/bin/emacs -Q -l ./wslg-clipboard-audit.el --eval '(ph/clipboard-audit-run)'
+/usr/local/bin/emacs -Q -l ./wslg-**FIXME-OLDNAME-clipboard-**audit.el --eval '(ph/**FIXME-OLDNAME-clipboard-**audit-run)'
 ```
 
 **X11 (Xwayland, Emacs 28.2):**
 ```bash
 env GDK_BACKEND=x11 WAYLAND_DISPLAY= DISPLAY=:0 \
-  /usr/bin/emacs -Q -l ./wslg-clipboard-audit.el --eval '(ph/clipboard-audit-run)'
+  /usr/bin/emacs -Q -l ./wslg-**FIXME-OLDNAME-clipboard-**audit.el --eval '(ph/**FIXME-OLDNAME-clipboard-**audit-run)'
 ```
 
 > If Emacs reports a “Render error: Invalid image type 'bmp'”, that only means your Emacs was built without a BMP loader. The **raw bytes were still retrieved and saved**; convert with `convert file.bmp file.png` if needed.
@@ -158,25 +163,26 @@ env GDK_BACKEND=x11 WAYLAND_DISPLAY= DISPLAY=:0 \
 For each step, we ran **both** Emacs builds (Wayland/pgtk and X11) side-by-side.
 
 1. **Baseline (empty clipboard)**  
-   ![Baseline – both show no text or images](clipboard-baseline.png)
+   ![Baseline – both show no text or images](00 empty windows clipboard.png)  
+   ![Baseline – both show no text or images](00 empty windows clipboard.png)
 
 2. **Copy an image in Windows** (e.g., Snipping Tool → Copy)  
    - **Wayland/pgtk**: `Found image/bmp (…)` and saved file to `/tmp/wslg-cliptest/...bmp`  
    - **X11**: No image targets; no image retrieved  
-   ![After copying an image – Wayland pulls BMP, X11 does not](clipboard-image1.png)
+   ![After copying an image – Wayland pulls BMP, X11 does not](01 image on windows clipboard.png)
 
 3. **Copy text in Windows**  
    - **Both**: Pulled text successfully (Wayland often sees `text/html` + `text/plain;charset=utf-8`)  
-   ![After copying text – both pull text](clipboard-text1.png)
+   ![After copying text – both pull text](02 html text on windows clipboard.png)
 
 4. **Copy another image**  
    - **Wayland/pgtk**: Again retrieves image bytes and saves to file  
    - **X11**: Still no image targets  
-   ![Second image – Wayland pulls, X11 does not](clipboard-image2.png)
+   ![Second image – Wayland pulls, X11 does not](03 another image on windows clipboard.png)
 
 5. **Copy more text**  
    - **Both**: Pulled text successfully  
-   ![Second text – both pull text](clipboard-text2.png)
+   ![Second text – both pull text](04 plain text on windows clipboard.png)
 
 ### Notes from the runs
 - If an image is on the Windows clipboard **before** starting Emacs, the first pgtk audit sometimes shows `TARGETS: (none reported)` and no image fetch; **recopying** the image after Emacs is running consistently succeeds. This suggests a **targets/notification quirk** rather than missing data. (Our audit mitigates this by probing common `image/*` types directly.)
@@ -232,7 +238,7 @@ These statements line up exactly with what we saw: Wayland/pgtk can fetch image 
 - **WSLg GitHub #236:** “image data only supported between Windows and Wayland, not X11.” (Maintainer comment). ([WSLg #236](https://github.com/microsoft/wslg/issues/236))  
 - **WSLg GitHub #642 (maintainer):** X11 is *text (UTF‑8) only*; Wayland supports limited HTML & bitmap in addition to text. ([WSLg #642](https://github.com/microsoft/wslg/issues/642))  
 - **`wl-clipboard` / `wl-paste` manual:** Wayland clipboard CLI and MIME handling. — see [wl-clipboard GitHub](https://github.com/bugaevc/wl-clipboard) and the [`wl-paste` man page](https://man.archlinux.org/man/wl-paste.1.en)  
-- **Superuser thread (X11 clipboard under WSLg):** reports X11 ↔ Windows inconsistencies. (see discussion: https://superuser.com/questions/1723016/clipboard-issues-with-windows-wsl2-gui-apps-wslg)
+- **Superuser thread (X11 clipboard under WSLg):** reports X11 ↔ Windows inconsistencies. (see discussion: https://superuser.com/questions/1723016/**FIXME-OLDNAME-clipboard-**issues-with-windows-wsl2-gui-apps-wslg)
 
 ---
 
@@ -249,10 +255,10 @@ These statements line up exactly with what we saw: Wayland/pgtk can fetch image 
 
 # 2) run Emacs audits (two terminals)
 # Wayland/pgtk
-/usr/local/bin/emacs -Q -l ./wslg-clipboard-audit.el --eval '(ph/clipboard-audit-run)'
+/usr/local/bin/emacs -Q -l ./wslg-**FIXME-OLDNAME-clipboard-**audit.el --eval '(ph/**FIXME-OLDNAME-clipboard-**audit-run)'
 # X11 (force X11 backend)
 env GDK_BACKEND=x11 WAYLAND_DISPLAY= DISPLAY=:0 \
-  /usr/bin/emacs -Q -l ./wslg-clipboard-audit.el --eval '(ph/clipboard-audit-run)'
+  /usr/bin/emacs -Q -l ./wslg-**FIXME-OLDNAME-clipboard-**audit.el --eval '(ph/**FIXME-OLDNAME-clipboard-**audit-run)'
 ```
 
 **Then copy in Windows:** image → text → image → text.  
