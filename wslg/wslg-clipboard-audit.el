@@ -14,9 +14,13 @@
     (insert (format "\n[Inserted %s]\n" ty))))
 
 (defun ph/targets (selection)
-  "Return TARGETS list (symbols) or nil."
+  "Return TARGETS as a list of symbols (or nil). Handles list/vector/atom."
   (let ((ts (ignore-errors (gui-get-selection selection 'TARGETS))))
-    (and (listp ts) ts)))
+    (cond
+     ((null ts) nil)
+     ((vectorp ts) (append ts nil))   ;; vector -> list
+     ((listp ts) ts)                  ;; list -> as-is
+     (t (list ts)))))   
 
 (defun ph/try-get (selection target)
   "Return BYTES/STRING from clipboard for TARGET or nil."
@@ -54,8 +58,8 @@
       (insert (format "Timestamp: %s\n\n" ts))
       (insert "TARGETS:\n")
       (if targets
-          (dolist (t (sort (mapcar #'symbol-name targets) #'string<))
-            (insert (format " - %s\n" t)))
+          (dolist (sym (sort (mapcar #'symbol-name targets) #'string<))
+            (insert (format " - %s\n" sym)))
         (insert " (none reported)\n"))
       (insert "\n--- IMAGE ATTEMPT ---\n"))
 
