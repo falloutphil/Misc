@@ -7,18 +7,40 @@
     ('image/png  "png") ('image/jpeg "jpg") ('image/bmp "bmp") ('image/tiff "tiff")
     ('text/html  "html") (_ "txt")))
 
+(defun ph/mime->fmt (mime)
+  "Map MIME symbol (e.g. 'image/png) to Emacs image TYPE symbol (e.g. 'png)."
+  (pcase mime
+    ('image/png  'png)
+    ('image/jpeg 'jpeg)
+    ('image/bmp  'bmp)
+    ('image/tiff 'tiff)
+    (_           nil)))
+
 (defun ph/insert-image-bytes (bytes &optional mime)
-  "Insert BYTES as an image, letting Emacs auto-detect; hint BMP if needed."
+  "Insert BYTES as an image, letting Emacs auto-detect; hint type when known.
+
+Handles the X11+Emacs28 multibyte clipboard case and the BMP+ImageMagick case."
   (let* ((raw (if (multibyte-string-p bytes)
-                  (encode-coding-string bytes 'binary)
+                  (encode-coding-string bytes 'binary)  ; ensure UNIBYTE
                 bytes))
-         (image-use-external-converter t)
-         ;; 1) normal autodetect (png/jpeg/tiff etc.)
+         (fmt (ph/mime->fmt mime))
+         ;; 1) Normal autodetect (works for PNG/JPEG/etc. when data is unibyte)
          (img (ignore-errors (create-image raw nil t))))
-    ;; 2) if that failed, try ImageMagick with a BMP hint
+    ;; 2) If autodetect failed but we *know* the Emacs image TYPE, try it.
     (unless img
-      (when (or (eq mime 'image/bmp) t)     ; try BMP as a robust fallback
-        (setq img (ignore-errors (create-image raw nil t :format 'image/bmp)))))
+      (when fmt
+        (setq img (ignore-errors (create-image raw fmt t)))))
+    ;; 3) BMP is special: give ImageMagick a :format hint (your proven fix).
+    (unless img
+      (when (eq fmt 'bmp)
+        (let ((image-use-external-converter t))
+          (setq img (ignore-errors
+                     (create-image raw nil t :format 'image/bmp))))))
+    ;; 4) Last resort: pass the MIME symbol as the DATA-P hint.
+    (unless img
+      (when mime
+        (setq img (ignore-errors (create-image raw nil mime)))))
+    ;; Render or report failure.
     (if img
         (progn (insert-image img) (insert "\n[Inline render OK]\n"))
       (insert "[Inline render failed]\n"))))
@@ -33,7 +55,8 @@
 
 (defun ph/try-get (selection target)
   "Return BYTES/STRING from clipboard for TARGET or nil."
-  (ignore-errors (gui-get-selection selection target)))
+  (let ((selection-coding-system 'binary))        ;; <-- crucial on X11/Emacs 28
+    (ignore-errors (gui-get-selection selection target))))
 
 (defun ph/first-common (candidates haystack)
   "Return first symbol in CANDIDATES that is `memq' in HAYSTACK, else nil."
