@@ -109,6 +109,23 @@ Meanwhile, as expected, the Wayland watcher didn’t see this injection because 
 ![Console proof – X11 image injected with xclip](clipboard-x11-console-prove-success.png)
 
 
+### Emacs proof: X11 image injection shows up in the Emacs audit
+
+We repeated the same **X11-only injection**, but this time verified it inside **Emacs (X11 build)** using the audit script:
+
+```bash
+# Inject a PNG directly into the X11 clipboard (no WSLg bridge involved)
+xclip -selection clipboard -t image/png -i clipboard-console.png -loops 1 &
+# Then, in the X11 Emacs window: M-x ph/clipboard-audit-run
+```
+
+**Result:** the Emacs audit on X11 lists `image/png` under **TARGETS**, retrieves the bytes, and saves `…/emacs-x11-<timestamp>.png`. (Inline rendering may show a “Invalid image type 'png'” if Emacs was built without a PNG loader, but the **raw bytes were captured and saved**.)
+
+This confirms the Emacs script is working correctly on X11 when image targets are present; the lack of images in Windows→X11 is therefore due to **WSLg not exposing image targets to X11**, not to Emacs.
+
+![Emacs proof – X11 image detected and saved](clipboard-x11-success-case-emacs.png)
+
+
 ## Emacs audit
 
 File: `wslg-clipboard-audit.el` (included here)
