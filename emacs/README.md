@@ -6,7 +6,7 @@ The recipes here are not interchangeable. They target different Debian releases,
 
 ## Directory Layout
 
-### `debian_12_wayland/`
+### `debian_12_bookworm_wayland_pgtk/`
 
 Older **Debian 12 (bookworm)** workflow focused on:
 
@@ -17,7 +17,7 @@ Older **Debian 12 (bookworm)** workflow focused on:
 
 Use this if you specifically want the older Bookworm-era approach and you are working in a Wayland-oriented environment.
 
-### `debian_13_x11/`
+### `debian_13_trixie_x11_gtk3/`
 
 Newer **Debian 13 (trixie)** workflow focused on:
 
