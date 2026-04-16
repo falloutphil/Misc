@@ -3,9 +3,11 @@ set -euo pipefail
 
 # ------------------------------------------------------------------
 # Stable Emacs 30.2 (GTK3/X11 + xwidgets) on Debian Trixie
-# WebKitGTK 2.40.5 linked to private ICU 75 in /opt/icu75
-# JPEG XL disabled; GI introspection/docs/minibrowser disabled
-# Re-runnable: use --clean={none|light|deep}
+# WebKitGTK 2.40.5 linked to private ICU 75.1 in /opt/icu75
+# Re-runnable:
+#   --clean=none  : reuse installed ICU/WebKit if present; rebuild Emacs
+#   --clean=light : drop build dirs, keep installed prefixes if present
+#   --clean=deep  : wipe everything and rebuild all
 # ------------------------------------------------------------------
 
 WK_VER="${WK_VER:-2.40.5}"
@@ -25,9 +27,9 @@ usage() {
   cat <<EOF
 Usage: $0 [--clean=none|light|deep]
 
-  none  - keep everything possible
-  light - rebuild WebKit/Emacs build dirs, keep downloaded tarballs and source trees
-  deep  - wipe workroot and rebuild from scratch
+  none  - keep installed ICU/WebKit if present; rebuild Emacs only
+  light - remove build dirs, keep installed prefixes if present
+  deep  - wipe workroot and installed ICU/WebKit, rebuild from scratch
 
 Environment overrides:
   WK_VER ICU_VER EMACS_VER WORKROOT WK_PREFIX ICU_PREFIX STOW_DIR EMACS_STOW_NAME
@@ -72,6 +74,30 @@ cleanup_sudo_timestamp() {
   sudo -k || true
 }
 trap cleanup_sudo_timestamp EXIT
+
+webkit_pc_path() {
+  if [[ -f "${WK_PREFIX}/lib/pkgconfig/webkit2gtk-4.1.pc" ]]; then
+    printf '%s\n' "${WK_PREFIX}/lib/pkgconfig/webkit2gtk-4.1.pc"
+    return 0
+  fi
+  if [[ -f "${WK_PREFIX}/lib/pkgconfig/webkit2gtk-4.0.pc" ]]; then
+    printf '%s\n' "${WK_PREFIX}/lib/pkgconfig/webkit2gtk-4.0.pc"
+    return 0
+  fi
+  return 1
+}
+
+webkit_lib_present() {
+  [[ -f "${WK_PREFIX}/lib/libwebkit2gtk-4.1.so" ]] || [[ -f "${WK_PREFIX}/lib/libwebkit2gtk-4.0.so" ]]
+}
+
+icu_present() {
+  [[ -x "${ICU_PREFIX}/bin/icuinfo" ]] && [[ -f "${ICU_PREFIX}/lib/libicuuc.so" ]]
+}
+
+webkit_present() {
+  webkit_pc_path >/dev/null 2>&1 && webkit_lib_present
+}
 
 install_build_prereqs() {
   log "1) Installing build prerequisites"
@@ -175,11 +201,12 @@ prepare_workspace() {
   case "$CLEAN_MODE" in
     deep)
       rm -rf "$WORKROOT"
+      sudo rm -rf "$ICU_PREFIX" "$WK_PREFIX"
       ;;
     light)
       rm -rf \
         "$WORKROOT/webkitgtk-${WK_VER}/build" \
-        "$WORKROOT/emacs-${EMACS_VER}/build"
+        "$WORKROOT/emacs-${EMACS_VER}"
       ;;
     none)
       :
@@ -190,18 +217,14 @@ prepare_workspace() {
 }
 
 build_private_icu() {
-  log "3) Building private ICU 75.1 -> ${ICU_PREFIX}"
+  log "3) Ensuring private ICU 75.1 -> ${ICU_PREFIX}"
 
   local icu_tar="icu4c-${ICU_VER}-src.tgz"
   local icu_url="https://github.com/unicode-org/icu/releases/download/release-75-1/${icu_tar}"
   local icu_src_root="${WORKROOT}/icu"
   local icu_build_dir="${icu_src_root}/source"
 
-  if [[ "$CLEAN_MODE" == "deep" ]]; then
-    sudo rm -rf "$ICU_PREFIX"
-  fi
-
-  if [[ -x "${ICU_PREFIX}/bin/icuinfo" ]] && [[ -f "${ICU_PREFIX}/lib/libicuuc.so" ]]; then
+  if icu_present; then
     log "3a) Reusing existing ICU at ${ICU_PREFIX}"
     return
   fi
@@ -209,7 +232,10 @@ build_private_icu() {
   rm -rf "$icu_src_root"
   mkdir -p "$WORKROOT"
 
-  curl -L "$icu_url" -o "${WORKROOT}/${icu_tar}"
+  if [[ ! -f "${WORKROOT}/${icu_tar}" ]]; then
+    curl -L "$icu_url" -o "${WORKROOT}/${icu_tar}"
+  fi
+
   tar -xzf "${WORKROOT}/${icu_tar}" -C "$WORKROOT"
 
   [[ -d "$icu_src_root" ]] || die "Expected ICU source dir ${icu_src_root} after extraction"
@@ -221,26 +247,40 @@ build_private_icu() {
   sudo make install
   popd >/dev/null
 
-  [[ -x "${ICU_PREFIX}/bin/icuinfo" ]] || die "ICU install failed: icuinfo missing"
-  [[ -f "${ICU_PREFIX}/lib/libicuuc.so" ]] || die "ICU install failed: libicuuc.so missing"
+  icu_present || die "ICU install failed"
 }
 
 fetch_webkit() {
-  log "4) Fetching WebKitGTK ${WK_VER}"
+  log "4) Ensuring WebKitGTK ${WK_VER} source"
 
   local wk_tar="webkitgtk-${WK_VER}.tar.xz"
   local wk_url="https://webkitgtk.org/releases/${wk_tar}"
   local wk_src_dir="${WORKROOT}/webkitgtk-${WK_VER}"
 
-  if [[ ! -d "$wk_src_dir" ]]; then
-    curl -L "$wk_url" -o "${WORKROOT}/${wk_tar}"
-    tar -xf "${WORKROOT}/${wk_tar}" -C "$WORKROOT"
+  if [[ -d "$wk_src_dir" ]]; then
+    return
   fi
+
+  if [[ ! -f "${WORKROOT}/${wk_tar}" ]]; then
+    curl -L "$wk_url" -o "${WORKROOT}/${wk_tar}"
+  fi
+
+  tar -xf "${WORKROOT}/${wk_tar}" -C "$WORKROOT"
+
+  [[ -d "$wk_src_dir" ]] || die "Expected WebKit source dir ${wk_src_dir} after extraction"
 }
 
 configure_and_build_webkit() {
   local wk_src_dir="${WORKROOT}/webkitgtk-${WK_VER}"
   local wk_build_dir="${wk_src_dir}/build"
+  local pc_file
+
+  if webkit_present; then
+    pc_file="$(webkit_pc_path)"
+    log "5) Reusing existing WebKitGTK install at ${WK_PREFIX}"
+    log "5a) Found pkg-config file: ${pc_file}"
+    return
+  fi
 
   [[ -d "$wk_src_dir" ]] || die "WebKit source directory missing: ${wk_src_dir}"
 
@@ -252,14 +292,16 @@ configure_and_build_webkit() {
 
   pushd "$wk_build_dir" >/dev/null
 
-  unset CC CXX CPP CFLAGS CXXFLAGS LDFLAGS
+  unset CC CXX CPP CFLAGS CXXFLAGS LDFLAGS PKG_CONFIG_PATH
   unset CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
   unset CCACHE_DIR
   export CCACHE_DISABLE=1
 
   export CC=/usr/bin/gcc
   export CXX=/usr/bin/g++
-  export PKG_CONFIG_PATH="${ICU_PREFIX}/lib/pkgconfig${PKG_CONFIG_PATH+:$PKG_CONFIG_PATH}"
+  export PKG_CONFIG_PATH="${ICU_PREFIX}/lib/pkgconfig"
+  export CPPFLAGS="-I${ICU_PREFIX}/include"
+  export LDFLAGS="-Wl,-rpath,${ICU_PREFIX}/lib -L${ICU_PREFIX}/lib"
 
   hash -r
 
@@ -295,8 +337,6 @@ configure_and_build_webkit() {
   local cmake_cxx_launcher
   local resolved_c
   local resolved_cxx
-  local expected_c
-  local expected_cxx
 
   cmake_c_compiler="$(sed -n 's/^CMAKE_C_COMPILER:.*=//p' CMakeCache.txt | head -n1)"
   cmake_cxx_compiler="$(sed -n 's/^CMAKE_CXX_COMPILER:.*=//p' CMakeCache.txt | head -n1)"
@@ -305,31 +345,20 @@ configure_and_build_webkit() {
 
   resolved_c="$(readlink -f "${cmake_c_compiler:-}" 2>/dev/null || true)"
   resolved_cxx="$(readlink -f "${cmake_cxx_compiler:-}" 2>/dev/null || true)"
-  expected_c="$(readlink -f /usr/bin/gcc)"
-  expected_cxx="$(readlink -f /usr/bin/g++)"
 
   printf 'C compiler from cache: %s\n' "${cmake_c_compiler:-<unset>}"
   printf 'CXX compiler from cache: %s\n' "${cmake_cxx_compiler:-<unset>}"
   printf 'Resolved C compiler: %s\n' "${resolved_c:-<unset>}"
   printf 'Resolved CXX compiler: %s\n' "${resolved_cxx:-<unset>}"
 
-  [[ -n "${resolved_c:-}" ]] \
-    || die "C compiler missing from CMakeCache.txt"
+  [[ "$resolved_c" == "$(readlink -f /usr/bin/gcc)" ]] \
+    || die "C compiler does not resolve to /usr/bin/gcc"
 
-  [[ -n "${resolved_cxx:-}" ]] \
-    || die "CXX compiler missing from CMakeCache.txt"
+  [[ "$resolved_cxx" == "$(readlink -f /usr/bin/g++)" ]] \
+    || die "CXX compiler does not resolve to /usr/bin/g++"
 
-  [[ "$resolved_c" == "$expected_c" ]] \
-    || die "C compiler does not resolve to /usr/bin/gcc (got: ${resolved_c:-unset})"
-
-  [[ "$resolved_cxx" == "$expected_cxx" ]] \
-    || die "CXX compiler does not resolve to /usr/bin/g++ (got: ${resolved_cxx:-unset})"
-
-  [[ -z "${cmake_c_launcher:-}" ]] \
-    || die "C compiler launcher still configured: ${cmake_c_launcher}"
-
-  [[ -z "${cmake_cxx_launcher:-}" ]] \
-    || die "CXX compiler launcher still configured: ${cmake_cxx_launcher}"
+  [[ -z "${cmake_c_launcher:-}" ]] || die "C compiler launcher still configured: ${cmake_c_launcher}"
+  [[ -z "${cmake_cxx_launcher:-}" ]] || die "CXX compiler launcher still configured: ${cmake_cxx_launcher}"
 
   log "7) Building WebKitGTK"
   ninja -j"$(nproc)"
@@ -339,27 +368,31 @@ configure_and_build_webkit() {
 
   popd >/dev/null
 
-  [[ -f "${WK_PREFIX}/lib/libwebkit2gtk-4.1.so" || -f "${WK_PREFIX}/lib/libwebkit2gtk-4.0.so" ]] \
-    || die "WebKit install failed: library not found in ${WK_PREFIX}/lib"
+  webkit_present || die "WebKit install failed"
 }
 
 fetch_emacs() {
-  log "9) Fetching Emacs ${EMACS_VER}"
+  log "9) Ensuring Emacs ${EMACS_VER} source"
 
   local emacs_tar="emacs-${EMACS_VER}.tar.xz"
   local emacs_url="https://ftp.gnu.org/gnu/emacs/${emacs_tar}"
   local emacs_src_dir="${WORKROOT}/emacs-${EMACS_VER}"
 
-  if [[ ! -d "$emacs_src_dir" ]]; then
-    curl -L "$emacs_url" -o "${WORKROOT}/${emacs_tar}"
-    tar -xf "${WORKROOT}/${emacs_tar}" -C "$WORKROOT"
+  if [[ -d "$emacs_src_dir" ]]; then
+    return
   fi
+
+  if [[ ! -f "${WORKROOT}/${emacs_tar}" ]]; then
+    curl -L "$emacs_url" -o "${WORKROOT}/${emacs_tar}"
+  fi
+
+  tar -xf "${WORKROOT}/${emacs_tar}" -C "$WORKROOT"
+
+  [[ -d "$emacs_src_dir" ]] || die "Expected Emacs source dir ${emacs_src_dir} after extraction"
 }
 
 build_emacs() {
   local emacs_src_dir="${WORKROOT}/emacs-${EMACS_VER}"
-
-  [[ -d "$emacs_src_dir" ]] || die "Emacs source directory missing: ${emacs_src_dir}"
 
   log "10) Preparing Emacs install prefix at ${EMACS_PREFIX}"
   sudo mkdir -p "$EMACS_PREFIX"
@@ -370,7 +403,11 @@ build_emacs() {
   log "11) Cleaning previous Emacs build"
   make distclean >/dev/null 2>&1 || true
 
-  export PKG_CONFIG_PATH="${WK_PREFIX}/lib/pkgconfig:${ICU_PREFIX}/lib/pkgconfig${PKG_CONFIG_PATH+:$PKG_CONFIG_PATH}"
+  local wk_pkgconfig
+  wk_pkgconfig="${WK_PREFIX}/lib/pkgconfig"
+  [[ -d "$wk_pkgconfig" ]] || die "Missing WebKit pkg-config dir: ${wk_pkgconfig}"
+
+  export PKG_CONFIG_PATH="${wk_pkgconfig}:${ICU_PREFIX}/lib/pkgconfig"
   export CPPFLAGS="-I${WK_PREFIX}/include -I${ICU_PREFIX}/include"
   export LDFLAGS="-Wl,-rpath,${WK_PREFIX}/lib -Wl,-rpath,${ICU_PREFIX}/lib -L${WK_PREFIX}/lib -L${ICU_PREFIX}/lib"
 
@@ -381,7 +418,6 @@ build_emacs() {
     --with-xwidgets \
     --with-cairo \
     --with-native-compilation \
-    --with-json \
     --with-tree-sitter \
     --with-mailutils \
     --with-imagemagick \
@@ -397,10 +433,12 @@ build_emacs() {
     --with-modules
 
   log "12a) Verifying Emacs configure result"
-  if ! grep -q '^HAVE_XWIDGETS=yes' src/config.h 2>/dev/null; then
-    grep -n 'xwidget\|webkit\|HAVE_XWIDGETS' config.log || true
-    die "Emacs configure did not enable xwidgets"
-  fi
+
+  grep -q '^#define HAVE_XWIDGETS 1$' src/config.h \
+    || {
+      grep -n 'webkit2gtk\|xwidget\|HAVE_XWIDGETS\|WEBKIT_' config.log || true
+      die "Emacs configure did not enable xwidgets"
+    }
 
   log "13) Building Emacs"
   make -j"$(nproc)"
@@ -430,7 +468,6 @@ run_tests() {
   [[ -x "$emacs_bin" ]] || die "Installed emacs binary not found at $emacs_bin"
 
   "$emacs_bin" --version | head -n 1
-
   ldd "$emacs_bin" | grep -E 'webkit|icu|xwidget' || true
 
   "$emacs_bin" -Q --batch \
