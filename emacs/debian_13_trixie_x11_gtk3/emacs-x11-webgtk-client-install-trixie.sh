@@ -2,36 +2,44 @@
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
-# Client-side installer for the portable Emacs xwidgets bundle
+# Client-side installer for the portable Emacs 30.2 xwidgets bundle on
+# Debian 13.x (Trixie).
 #
-# Expected usage:
-#   1. Copy this script into the same directory as:
-#        - icu75.txz
-#        - wk240.txz
-#        - emacs-30.2-x11wk.txz   (or whatever EMACS_STOW_NAME was used)
-#   2. Run this script on a Debian 13.x machine.
+# Expected files in the same directory as this script:
+#   - icu75.txz
+#   - wk240.txz
+#   - emacs-30.2-x11wk.txz   (or whatever EMACS_STOW_NAME is set to)
+# Optional:
+#   - SHA256SUMS
 #
 # What this script does:
-#   - installs only the *runtime* packages needed on the client machine
-#   - extracts the private ICU and WebKitGTK bundles under /opt
-#   - extracts the Emacs package under /usr/local/stow
-#   - uses GNU Stow to activate Emacs into /usr/local
-#   - runs a few checks so you fail early rather than discovering breakage later
+#   - installs runtime packages only
+#   - extracts private ICU into /opt/icu75
+#   - extracts private WebKitGTK into /opt/wk240
+#   - extracts Emacs into /usr/local/stow/<package>
+#   - activates Emacs via GNU Stow into /usr/local
+#   - installs a dedicated xwidget-safe wrapper:
+#       /usr/local/bin/emacs-x11wk-safe
 #
-# Why Stow is used here:
-#   GNU Stow is a symlink farm manager. Instead of copying all of Emacs directly
-#   into /usr/local/bin, /usr/local/share, etc., we keep the actual package in
-#     /usr/local/stow/<package>
-#   and let Stow create symlinks into /usr/local.
-#   That makes future upgrades and removals clean and reversible.
+# Important:
+#   The xwidget rendering workaround is NOT exported globally.
+#   It is confined to the wrapper script only.
 # -----------------------------------------------------------------------------
 
 EMACS_STOW_NAME="${EMACS_STOW_NAME:-emacs-30.2-x11wk}"
+ICU_PREFIX="${ICU_PREFIX:-/opt/icu75}"
+WK_PREFIX="${WK_PREFIX:-/opt/wk240}"
+STOW_DIR="${STOW_DIR:-/usr/local/stow}"
+
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$SCRIPT_DIR}"
+
 ICU_ARCHIVE="${ICU_ARCHIVE:-$ARTIFACT_DIR/icu75.txz}"
 WK_ARCHIVE="${WK_ARCHIVE:-$ARTIFACT_DIR/wk240.txz}"
 EMACS_ARCHIVE="${EMACS_ARCHIVE:-$ARTIFACT_DIR/${EMACS_STOW_NAME}.txz}"
+
+EMACS_STOW_PATH="${STOW_DIR}/${EMACS_STOW_NAME}"
+SAFE_WRAPPER="/usr/local/bin/emacs-x11wk-safe"
 
 need_file() {
   [ -f "$1" ] || {
@@ -51,88 +59,175 @@ log() {
   printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"
 }
 
-# Use a predictable umask so extracted trees remain readable to normal users.
+die() {
+  printf '\nERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+cleanup_sudo_timestamp() {
+  sudo -k || true
+}
+trap cleanup_sudo_timestamp EXIT
+
+# Use a predictable umask so extracted trees remain readable.
 umask 022
 
 need_cmd sudo
 need_cmd tar
 need_cmd sha256sum
+need_cmd stow
+need_cmd readlink
+need_cmd grep
+
 need_file "$ICU_ARCHIVE"
 need_file "$WK_ARCHIVE"
 need_file "$EMACS_ARCHIVE"
 
-# Optional integrity verification if SHA256SUMS is present in the artifact dir.
+log "1) Verifying sudo access"
+sudo -v
+
+# Optional integrity verification if SHA256SUMS is present.
 if [ -f "$ARTIFACT_DIR/SHA256SUMS" ]; then
-  log "Verifying checksums from SHA256SUMS"
+  log "2) Verifying checksums from SHA256SUMS"
   (
     cd "$ARTIFACT_DIR"
     sha256sum -c SHA256SUMS
   )
+else
+  log "2) No SHA256SUMS found; skipping checksum verification"
 fi
 
-log "Installing client runtime packages"
-sudo apt update
+log "3) Installing client runtime packages"
+sudo apt-get update
+sudo apt-get install -y \
+  stow \
+  xz-utils \
+  ca-certificates \
+  glib-networking \
+  bubblewrap \
+  xdg-dbus-proxy \
+  libgccjit0 \
+  imagemagick \
+  libgl1-mesa-dri \
+  libegl1 \
+  libgbm1 \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-plugins-ugly \
+  gstreamer1.0-libav \
+  gstreamer1.0-alsa \
+  libsoup2.4-1 \
+  libsecret-1-0 \
+  libenchant-2-2 \
+  libhyphen0 \
+  liblcms2-2
 
-# Only runtime packages go on the client machine. No compilers, no headers.
-sudo apt install -y \
-  stow xz-utils \
-  glib-networking ca-certificates libgl1-mesa-dri libegl1 libgbm1 \
-  bubblewrap xdg-dbus-proxy \
-  libsoup2.4-1 libsecret-1-0 libenchant-2-2 libhyphen0 liblcms2-2 \
-  gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly \
-  gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa \
-  libgccjit0 imagemagick
+log "4) Creating destination directories"
+sudo mkdir -p /opt "$STOW_DIR"
 
-log "Creating destination directories"
-sudo mkdir -p /opt /usr/local/stow
+log "5) Cleaning prior installs for a safe rerun"
+sudo stow -D -d "$STOW_DIR" -t /usr/local "$EMACS_STOW_NAME" 2>/dev/null || true
+sudo rm -rf "$ICU_PREFIX" "$WK_PREFIX" "$EMACS_STOW_PATH"
 
-log "Extracting private ICU into /opt"
+log "6) Extracting private ICU into /"
 sudo tar -C / -xJf "$ICU_ARCHIVE"
 
-log "Extracting private WebKitGTK into /opt"
+log "7) Extracting private WebKitGTK into /"
 sudo tar -C / -xJf "$WK_ARCHIVE"
 
-log "Extracting Emacs package into /usr/local/stow"
-sudo tar -C /usr/local/stow -xJf "$EMACS_ARCHIVE"
+log "8) Extracting Emacs package into $STOW_DIR"
+sudo tar -C "$STOW_DIR" -xJf "$EMACS_ARCHIVE"
 
-# Remove desktop files that can conflict with the ones from this stowed package.
-log "Removing potentially conflicting desktop files"
+[ -d "$EMACS_STOW_PATH" ] || die "Expected extracted Emacs package dir missing: $EMACS_STOW_PATH"
+[ -x "$EMACS_STOW_PATH/bin/emacs" ] || die "Expected Emacs binary missing: $EMACS_STOW_PATH/bin/emacs"
+
+log "9) Removing potentially conflicting desktop files"
 sudo rm -f \
   /usr/local/share/applications/emacsclient.desktop \
   /usr/local/share/applications/emacsclient-mail.desktop \
-  /usr/local/share/applications/emacs-mail.desktop || true
+  /usr/local/share/applications/emacs-mail.desktop \
+  /usr/local/share/applications/emacs.desktop || true
 
-log "Activating Emacs through GNU Stow"
-sudo stow -R -d /usr/local/stow -t /usr/local "$EMACS_STOW_NAME"
+log "10) Activating Emacs through GNU Stow"
+sudo stow -d "$STOW_DIR" -t /usr/local "$EMACS_STOW_NAME"
 
-log "Running installation checks"
-readlink -f /usr/local/bin/emacs >/dev/null
+log "11) Installing dedicated xwidget-safe wrapper"
+sudo tee "$SAFE_WRAPPER" >/dev/null <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec env \
+  WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+  LIBGL_ALWAYS_SOFTWARE=1 \
+  GSK_RENDERER=cairo \
+  /usr/local/bin/emacs "\$@"
+EOF
+sudo chmod 755 "$SAFE_WRAPPER"
 
-/usr/local/stow/"$EMACS_STOW_NAME"/bin/emacs -Q --batch \
-  --eval "(princ (featurep 'xwidget-internal))" | grep -q '^t$' \
-  || { echo "xwidgets check failed" >&2; exit 1; }
+log "12) Running installation checks"
 
-/usr/local/stow/"$EMACS_STOW_NAME"/bin/emacs -Q --batch \
-  --eval "(princ (if (image-type-available-p 'imagemagick) 't 'nil))" | grep -q '^t$' \
-  || { echo "ImageMagick support check failed" >&2; exit 1; }
+[ -x /usr/local/bin/emacs ] || die "Installed emacs launcher not found at /usr/local/bin/emacs"
+
+resolved_emacs="$(readlink -f /usr/local/bin/emacs)"
+printf 'Resolved /usr/local/bin/emacs -> %s\n' "$resolved_emacs"
+
+case "$resolved_emacs" in
+  "$EMACS_STOW_PATH"/bin/emacs|"$EMACS_STOW_PATH"/bin/emacs-*)
+    :
+    ;;
+  *)
+    die "/usr/local/bin/emacs does not point into ${EMACS_STOW_PATH}"
+    ;;
+esac
+
+/usr/local/bin/emacs --version | head -n 1
+
+/usr/local/bin/emacs -Q --batch \
+  --eval "(princ (if (featurep 'xwidget-internal) 't 'nil))" \
+  | grep -q '^t$' \
+  || die "xwidgets feature check failed"
+
+/usr/local/bin/emacs -Q --batch \
+  --eval "(princ (if (image-type-available-p 'imagemagick) 't 'nil))" \
+  | grep -q '^t$' \
+  || die "ImageMagick support check failed"
 
 command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1 \
-  || { echo "Neither magick nor convert found on PATH" >&2; exit 1; }
+  || die "Neither magick nor convert found on PATH"
 
-cat <<EOF2
+log "13) Final notes"
+cat <<EOF
 
 Install complete.
 
 Activated package:
-  /usr/local/stow/$EMACS_STOW_NAME
+  ${EMACS_STOW_PATH}
 
-Visible launcher:
+Standard launcher:
   /usr/local/bin/emacs
 
-Quick checks passed:
-  - xwidgets available
-  - ImageMagick available
-  - Emacs activated through Stow
+Xwidget-safe launcher:
+  ${SAFE_WRAPPER}
 
-You can now start Emacs normally.
-EOF2
+What to use:
+  - For normal Emacs use:
+      /usr/local/bin/emacs
+  - For xwidget/WebKit browsing on machines that show blank or badly rendered pages:
+      ${SAFE_WRAPPER} -Q
+
+Why the extra wrapper exists:
+  Some Debian 13 + GTK3/X11 + WebKitGTK setups render xwidgets incorrectly unless
+  WebKit compositing is disabled and software rendering is forced. We do NOT set
+  those variables globally, because that would be a broad and unnecessary system-
+  wide change. Instead, they are confined to the wrapper above.
+
+Checks passed:
+  - Emacs is stowed into /usr/local
+  - xwidgets support is present
+  - ImageMagick support is present
+
+Suggested first test:
+  ${SAFE_WRAPPER} -Q
+  Then:
+    M-x xwidget-webkit-browse-url RET https://www.bbc.com RET
+
+EOF
