@@ -1,676 +1,458 @@
-# Emacs 30.2 + GTK3/X11 + xwidgets + ImageMagick on Debian 13.4 (Trixie)
+# Emacs 30.2 + GTK3/X11 + xwidgets on Debian 13 (Trixie)
 
-This repository of scripts is a **self-contained build, packaging, and install workflow** for a custom Emacs build on **Debian 13.x (Trixie)**.
-
-It is aimed at the situation where you want:
+This directory contains a working, rerunnable recipe for building and installing:
 
 - **Emacs 30.2**
-- **GTK3/X11** rather than Wayland/PGTK
-- **xwidgets** enabled, so Emacs can host native GTK widgets such as the WebKit widget used by `xwidget-webkit-browse-url`
-- **ImageMagick support** in Emacs
-- a **portable delivery bundle** that can be installed on another Debian 13.x machine **without rebuilding**
+- with **GTK3**
+- on **X11**
+- with **xwidgets enabled**
+- against a **private pinned WebKitGTK 2.40.5**
+- against a **private pinned ICU 75.1**
+- installed cleanly with **GNU Stow**
 
-The deliverables are:
+This was debugged on **Debian 13 / Trixie**, and the final result is:
 
-- `emacs-x11-webgtk-build-and-package-trixie.sh`
-- `emacs-x11-webgtk-client-install-trixie.sh`
-- a build output directory containing `*.txz` payloads and a combined bundle
+- Emacs builds successfully
+- `featurep 'xwidget-internal` is true
+- `M-x xwidget-webkit-browse-url` opens an xwidget browser buffer
+- WebKit content renders successfully
+- but on this machine, correct rendering required these runtime environment variables:
 
----
+```bash
+WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 GSK_RENDERER=cairo /usr/local/bin/emacs -Q
+```
 
-## Why this build exists at all
+That point matters.
 
-Emacs xwidgets on GNU/Linux are awkward because they sit on top of a stack that is not especially small:
-
-- Emacs must be built with xwidget support.
-- The relevant GTK toolkit pieces must be present.
-- WebKitGTK must be available at build time and usable at runtime.
-- WebKitGTK itself is a large, opinionated component with many optional features and a history of being more fragile to build than most ordinary libraries.
-
-GNU Emacs documents xwidgets as **embedded native widgets** available when Emacs is built with the necessary support libraries, and the usual feature test is whether `xwidget-internal` is present. citeturn385550search3
-
-That sounds simple until you try to stabilize the exact WebKitGTK version and dependency behavior you want. In practice, many people end up pinning or locally building a known-good WebKitGTK stack rather than trusting whatever happens to be current in the distro at the time.
-
-That is what these scripts do.
+The build itself was correct before this. The remaining problem was a **runtime rendering/compositing issue**, not a build failure, and not a reason to disable the WebKit sandbox.
 
 ---
 
-## High-level architecture
+## Final working shape
 
-The build script intentionally splits the world into **three layers**:
+The final layout is:
 
-1. **System packages from Debian**
-   - compilers, headers, GTK, GStreamer, sandboxing helpers, and runtime support packages
+- **private ICU** under `/opt/icu75`
+- **private WebKitGTK** under `/opt/wk240`
+- **Emacs** under `/usr/local/stow/emacs-30.2-x11wk`
+- symlinked into `/usr/local` with **GNU Stow**
 
-2. **Private locally built dependencies under `/opt`**
-   - `ICU` under `/opt/icu75`
-   - `WebKitGTK 2.40.5` under `/opt/wk240`
+That split is intentional:
 
-3. **Emacs itself under GNU Stow**
-   - package contents live under `/usr/local/stow/<package>`
-   - visible symlinks appear under `/usr/local/bin`, `/usr/local/share`, and so on
+- `/opt` is for the **private pinned library stack**
+- Stow is for the **user-facing application**
 
-This split is deliberate.
+That is the cleanest arrangement.
 
-### Why `/opt` for ICU and WebKitGTK?
+---
 
-These are **not** intended to become normal shared libraries for the rest of the machine. They are bundled private dependencies for this Emacs build.
+## What this setup was trying to achieve
 
-Keeping them under `/opt` makes that explicit:
+This is not just “build Emacs from source”.
 
-- they are clearly **non-Debian-managed**
-- they do not masquerade as first-class system libraries
-- they are easy to package and extract as a distinct private stack
-- you can remove or replace them without pretending they belong in the main system library namespace
+It is a specific build target:
 
-### Why Stow for Emacs?
+- **Emacs 30.2**
+- **GTK3/X11**
+- **xwidgets**
+- **private pinned WebKitGTK**
+- **private pinned ICU**
+- **clean install and upgrade story**
+- a layout that is easy to inspect, re-run, and remove
 
-GNU Stow describes itself as a **symlink farm manager** that takes separate package trees and makes them appear to be installed in a single place. citeturn590599search0turn590599search8
+The hard part here is not ordinary Emacs compilation. The hard part is getting:
 
-That is exactly the right fit for hand-built user-facing software under `/usr/local`.
+- WebKitGTK
+- ICU
+- pkg-config discovery
+- compiler selection
+- Stow layout
+- runtime rendering behavior
 
-Instead of spraying files directly into:
+all aligned.
+
+---
+
+## The final architecture
+
+There are three layers.
+
+### 1. Debian-managed packages
+
+These come from `apt` and provide:
+
+- compilers and build tools
+- GTK3 and media headers
+- GStreamer stack pieces
+- graphics stack libraries
+- native compilation dependencies
+- general Emacs feature dependencies
+
+### 2. Private pinned libraries under `/opt`
+
+These are built from source and intentionally kept out of the normal distro library namespace:
+
+- `/opt/icu75`
+- `/opt/wk240`
+
+### 3. Emacs installed under Stow
+
+Emacs installs into:
+
+- `/usr/local/stow/emacs-30.2-x11wk`
+
+Then Stow exposes it through:
 
 - `/usr/local/bin`
 - `/usr/local/share`
 - `/usr/local/lib`
+- and related paths
 
-we install Emacs into:
+That gives you a clean install tree and easy rollback/removal.
 
-- `/usr/local/stow/emacs-30.2-x11wk`
+---
 
-and then let Stow create symlinks into `/usr/local`.
+## Why `/opt` for ICU and WebKitGTK
+
+Because they are **private support libraries for this Emacs build**, not generic libraries you want to treat like first-class Debian-managed system components.
+
+Using `/opt` makes that explicit:
+
+- they are clearly local/private
+- they do not pretend to be distro packages
+- they are easy to remove or replace
+- they are easy to package separately if you want to move the stack to another similar machine
+
+---
+
+## Why Stow for Emacs
+
+Emacs is the thing you actually want to “install”.
+
+Stow is the right tool here because it lets you keep the actual files in one contained package tree while presenting them under `/usr/local` via symlinks.
 
 That gives you:
 
-- cleaner upgrades
-- cleaner removal
-- easier inspection of what belongs to this build
-- less risk of slowly cluttering `/usr/local`
+- clean upgrades
+- clean removal
+- easy inspection of what belongs to this build
+- less `/usr/local` clutter
 
-### Why not Stow ICU and WebKitGTK as well?
+The important fix here was that Emacs must install into the **package root itself**, not into a nested `usr/local` below it.
 
-You *could* do that, but it is the wrong abstraction here.
-
-Stow is best when you want software to **present itself as installed into one normal prefix** like `/usr/local`. ICU and WebKitGTK here are not really being offered to the system as generic libraries; they are being carried as a **private pinned stack** for one application. `/opt` is therefore the clearer and safer home.
-
-So the short version is:
-
-- **Stow for the application**
-- **`/opt` for the private bundled dependency stack**
-
-That is the cleanest mental model.
-
----
-
-## Why WebKitGTK is such a pain
-
-WebKitGTK is large, complex, and highly configurable. It has a long list of optional and semi-optional build-time features. It is also the part of the stack most likely to cause build trouble.
-
-The WebKitGTK build system exposes options such as:
-
-- `ENABLE_INTROSPECTION`
-- `ENABLE_DOCUMENTATION`
-- `ENABLE_X11_TARGET`
-- `ENABLE_WAYLAND_TARGET`
-- `USE_GTK4`
-
-and more. The GTK options file in the upstream WebKit source shows that documentation depends on introspection, and that many of these features are individually configurable. citeturn590599search10
-
-For this build, we intentionally choose the smallest practical shape that still serves Emacs xwidgets well:
-
-- **GTK port**
-- **X11 target ON**
-- **Wayland target OFF**
-- **GTK4 OFF**
-- **Soup2 ON**
-- **Introspection OFF**
-- **Documentation OFF**
-- **MiniBrowser OFF**
-
-That is not because those other options are “bad” in general. It is because they are not required for the desired Emacs runtime and they widen the build surface unnecessarily.
-
----
-
-## Why GObject Introspection is turned off
-
-GObject Introspection is a system that scans C libraries and generates metadata so that non-C language bindings and tools can understand those APIs automatically. citeturn590599search1turn590599search5
-
-That machinery is useful when you need generated typelib/GIR metadata for bindings or tooling.
-
-But **Emacs xwidgets do not need WebKitGTK introspection metadata in order to use the WebKit widget**.
-
-So this workflow turns it off deliberately:
-
-- `-DENABLE_INTROSPECTION=OFF`
-- `-DENABLE_DOCUMENTATION=OFF`
-
-This has two benefits:
-
-1. it removes packages and moving parts that are not needed for the target result
-2. it avoids a class of build failures that often cluster around introspection/doc generation
-
-You may notice commented references to:
-
-- `gobject-introspection`
-- `libgirepository1.0-dev`
-- `gi-docgen`
-
-Those remain in the builder as commented reference only. They are there so future-you can see what was consciously *not* included.
-
----
-
-## Why ImageMagick is included
-
-This setup enables ImageMagick for **two related but separate reasons**.
-
-### 1. Emacs image support
-
-GNU Emacs can be built with ImageMagick support so that image handling goes through the ImageMagick libraries where appropriate. The Emacs Lisp manual documents ImageMagick-backed images and related image handling behavior. citeturn590599search3
-
-The sanity test used by the scripts is:
-
-```elisp
-(image-type-available-p 'imagemagick)
-```
-
-### 2. External image tooling
-
-Separately, many Emacs-based graphics or sprite workflows use the external ImageMagick CLI (`magick` or `convert`) to crop or compose images ahead of display.
-
-Those are **not the same thing**.
-
-Building Emacs with ImageMagick support does **not** automatically replace an external CLI-based asset pipeline. It simply means Emacs itself can use ImageMagick-backed image support where relevant.
-
-So the scripts install:
-
-- the **runtime tool**: `imagemagick`
-- the **development headers**: `libmagickwand-7.q16-dev`
-
-On current Debian Trixie, the versioned `libmagickwand-7.q16-dev` package is the real development package for MagickWand. citeturn385550search0turn385550search4
-
----
-
-## Why native compilation needs `libgccjit0`
-
-Emacs native compilation relies on libgccjit. The build machine needs the development package in order to compile Emacs with native compilation enabled, and the client machine needs the runtime shared library so Emacs can use that support normally.
-
-That is why the scripts use:
-
-- build machine: `libgccjit-14-dev`
-- client/runtime: `libgccjit0`
-
-Debian Trixie ships `libgccjit0` as the shared runtime library package. citeturn385550search1
-
----
-
-## Why `ninja` is used
-
-`ninja` is a small, fast build tool designed to execute build graphs efficiently. In this workflow it is not replacing `make` everywhere; it is specifically used because the WebKitGTK build system is driven through **CMake + Ninja**.
-
-So the division is:
-
-- `configure` + `make` for ICU and Emacs
-- `cmake -GNinja` + `ninja` for WebKitGTK
-
-That is normal and appropriate for those upstream projects.
-
----
-
-## About `umask` and why the scripts set it
-
-The builder and installer both set:
+Correct:
 
 ```bash
-umask 022
+--prefix=/usr/local/stow/emacs-30.2-x11wk
 ```
 
-This matters more than people often realize.
+Wrong:
 
-When you create packaged artifacts without a predictable umask, you can end up with tarballs that preserve overly private permissions. That can turn into confusing client-side install failures or unreadable files after extraction.
+```bash
+--prefix=/usr/local/stow/emacs-30.2-x11wk/usr/local
+```
 
-Using `022` means:
-
-- owner gets write permission
-- group and world get read permission by default
-
-For build artifacts intended for handoff, that is generally the sensible default.
-
-So yes, this is one of those boring details that is worth getting right up front.
+That wrong nested prefix is exactly how you end up with files in the tree but nothing appearing under `/usr/local/bin` after Stow runs.
 
 ---
 
-## Files in this workflow
+## What went wrong during debugging, and what fixed it
 
-### `emacs-x11-webgtk-build-and-package-trixie.sh`
+This is the part that actually matters if you ever have to repeat this.
 
-This script runs on the **build machine**.
+### 1. ICU source extraction path had to be right
 
-It does all of the following:
+The ICU tarball expands to `icu/`, with the build happening under:
 
-- installs build dependencies
-- installs runtime dependencies needed on the build machine itself
-- builds ICU privately into `/opt/icu75`
-- builds WebKitGTK 2.40.5 privately into `/opt/wk240`
-- builds Emacs 30.2 into `/usr/local/stow/<package>`
-- activates Emacs through Stow on the build machine
-- runs sanity checks
-- produces portable `.txz` payloads
-- optionally copies the client installer and README into the artifact directory
-- emits a final combined bundle tarball
+```bash
+$WORKROOT/icu/source
+```
 
-### `emacs-x11-webgtk-client-install-trixie.sh`
+So the script had to look for:
 
-This script runs on a **client machine**.
+- source root: `$WORKROOT/icu`
+- build dir: `$WORKROOT/icu/source`
 
-It does all of the following:
+not some guessed variant.
 
-- installs runtime packages only
-- verifies checksums if `SHA256SUMS` is present
-- extracts the private ICU and WebKitGTK payloads under `/opt`
-- extracts the Emacs payload under `/usr/local/stow`
-- activates Emacs via Stow
-- checks xwidgets and ImageMagick support
+### 2. WebKitGTK needed to be built against the private ICU
 
----
-
-# Builder script walkthrough
-
-Below is the practical logic of the build script, section by section.
-
-## 1. Tunables
-
-The script exposes variables such as:
-
-- `WK_VER`
-- `ICU_VER`
-- `WK_PREFIX`
-- `ICU_PREFIX`
-- `EMACS_VER`
-- `EMACS_STOW_NAME`
-- `BUILDROOT`
-- `DISTDIR`
-- `JOBS`
-- `CLEAN`
-
-These let you keep the script stable while changing versions or paths without rewriting the file.
-
-The defaults are chosen so that the resulting build tree is easy to recognize:
-
-- `/opt/icu75`
-- `/opt/wk240`
-- `/usr/local/stow/emacs-30.2-x11wk`
-
-## 2. Argument parsing
-
-The script accepts:
-
-- `--clean=none`
-- `--clean=light`
-- `--clean=deep`
-
-This is there because WebKitGTK builds are expensive and you do not always want to throw away everything.
-
-- **none**: keep existing build trees where possible
-- **light**: clean in-place build products and rebuild
-- **deep**: stash or remove source/build trees and start properly fresh
-
-## 3. Helper functions
-
-The script defines helpers such as:
-
-- `log`
-- `die`
-- `stash_dir`
-- `need_cmd`
-
-These are not fancy. They just make the script easier to read and fail in a controlled way.
-
-That matters because long source builds are miserable to debug if every failure looks the same.
-
-## 4. `umask 022`
-
-Set early, so everything that follows inherits sensible default permissions.
-
-## 5. Build prerequisites
-
-The builder installs:
-
-- core tooling: compilers, `cmake`, `ninja`, `pkg-config`, `ccache`, `stow`
-- graphics and GTK development headers
-- media and rendering stack dependencies
-- Emacs-specific development headers
-- ImageMagick development headers and CLI tooling
-
-The commented-out introspection packages are intentionally left commented.
-
-This is one of the key design choices of the workflow.
-
-## 6. Runtime prerequisites on the build machine
-
-The build machine also needs to *run* the built Emacs. So the builder installs the runtime package set too.
-
-This matters because you want to test the exact thing you just built, not just compile it.
-
-## 7. Workspace preparation
-
-The build root is created and optionally cleaned.
-
-`ccache` is enabled by exporting:
-
-- `CC="ccache gcc"`
-- `CXX="ccache g++"`
-
-That is a practical quality-of-life improvement, especially when you are iterating after a failed WebKit build or reconfiguring Emacs.
-
-## 8. ICU build
-
-ICU is built first into `/opt/icu75`.
-
-Why?
-
-Because the whole point is to pin a private ICU for the WebKitGTK build rather than relying on whatever system ICU happens to be current.
-
-The build uses a conventional `configure` + `make` flow and disables samples/tests to keep the build leaner.
-
-## 9. WebKitGTK source fetch
-
-The script downloads the `webkitgtk-2.40.5.tar.xz` release tarball directly from the WebKitGTK release site. WebKitGTK 2.40.5 is indeed an upstream release in the stable 2.40 series. citeturn385550search2turn385550search6
-
-## 10. WebKitGTK configure step
-
-This is the most important part of the whole workflow.
-
-### The key environment forcing
-
-The script exports:
+That required:
 
 - `CMAKE_PREFIX_PATH`
 - `PKG_CONFIG_PATH`
-- `CFLAGS`
-- `CXXFLAGS`
-- `LDFLAGS`
+- explicit ICU CMake variables
+- runtime rpath to `/opt/icu75/lib`
 
-pointing at the private ICU.
+Without that, the build may pick up the system ICU instead of the private one.
 
-That is what makes the WebKitGTK build prefer the pinned ICU instead of the system one.
+### 3. Compiler verification originally used the wrong check
 
-### The chosen CMake options
+CMake stored:
 
-The script uses:
+- `/usr/bin/gcc`
+- `/usr/bin/g++`
 
-- `-DPORT=GTK`
-- `-DENABLE_X11_TARGET=ON`
-- `-DENABLE_WAYLAND_TARGET=OFF`
-- `-DUSE_GTK4=OFF`
-- `-DUSE_SOUP2=ON`
-- `-DUSE_JPEGXL=OFF`
-- `-DENABLE_INTROSPECTION=OFF`
-- `-DENABLE_DOCUMENTATION=OFF`
-- `-DENABLE_MINIBROWSER=OFF`
+but those resolve on Debian to versioned compiler backends like:
 
-#### Why each matters
+- `/usr/bin/x86_64-linux-gnu-gcc-14`
+- `/usr/bin/x86_64-linux-gnu-g++-14`
 
-- **GTK port**: needed because xwidgets on Linux are GTK/WebKitGTK-based.
-- **X11 ON**: matches the intended Emacs target.
-- **Wayland OFF**: narrows the build and avoids pulling in another display target you do not need.
-- **GTK4 OFF**: keeps the build on GTK3 where the Emacs/xwidgets target lives here.
-- **Soup2 ON**: matches the intended pinned stack.
-- **JPEGXL OFF**: removes another optional dependency edge.
-- **Introspection OFF**: removes unneeded GIR/typelib generation.
-- **Documentation OFF**: avoids doc-generation requirements and because documentation depends on introspection in WebKit’s build logic. citeturn590599search10
-- **MiniBrowser OFF**: we are not building WebKitGTK as a general desktop browser toolkit demo package; we only need the library stack for Emacs.
+That is normal.
 
-## 11. WebKitGTK build and install
+So the check had to compare **resolved paths** rather than insist the cache literally contained only `/usr/bin/gcc` and `/usr/bin/g++` in the simplistic sense.
 
-This uses `ninja`, because that is the selected CMake generator.
+### 4. `ccache` was a red herring, but the script still neutralises launcher issues
 
-Then it installs under `/opt/wk240`.
+The logs showed WebKit’s build system probing for `ccache`. At one point the script also had over-strict launcher checks.
 
-## 12. WebKitGTK verification
+In the successful path:
 
-The script checks:
+- no active compiler launcher remained in the CMake cache
+- `ccache` was not the real blocker
+- the script explicitly forces the compiler and clears launcher-related environment variables during WebKit configure
 
-```bash
-pkg-config --modversion webkit2gtk-4.0
+So `ccache` was not the root cause, but cleaning up the compiler-selection logic was still necessary.
+
+### 5. WebKitGTK did build and install correctly
+
+The script eventually produced a correct private install under `/opt/wk240`, with pkg-config files available there.
+
+That allowed Emacs configure to find WebKitGTK and enable xwidgets.
+
+### 6. Emacs configure verification was checking the wrong thing
+
+The correct post-configure check was:
+
+```c
+#define HAVE_XWIDGETS 1
 ```
 
-through the private prefix.
+in `src/config.h`.
 
-That is a cheap but useful sanity check: it verifies that the install tree advertises the expected WebKitGTK version.
+Not:
 
-## 13. Emacs configure step
+```bash
+HAVE_XWIDGETS=yes
+```
 
-Emacs is configured with:
+That string is not the right success test.
 
-- `--with-x=yes`
-- `--with-x-toolkit=gtk3`
-- `--with-xwidgets`
-- `--with-native-compilation`
-- `--with-tree-sitter`
-- `--with-modules`
-- `--with-cairo`
-- `--with-harfbuzz`
-- `--with-mailutils`
-- `--with-rsvg`
-- `--with-webp`
-- `--with-imagemagick`
-- `--with-sqlite3`
-- `--with-gnutls`
-- `--with-xml2`
-- `--with-gpm`
+### 7. `--with-json` had to be removed
 
-### Why these flags are used
+Emacs 30.2 on this system warned that `--with-json` was an unrecognised option.
 
-#### `--with-x=yes`
-You want a graphical X11 build.
+That is because JSON support is not controlled by that configure switch in this build context. So the flag had to go.
 
-#### `--with-x-toolkit=gtk3`
-This selects GTK3 rather than Lucid or other toolkit variants.
+### 8. Reuse logic had to be made real
 
-#### `--with-xwidgets`
-This is the whole reason we are doing the WebKitGTK work at all.
+A rerunnable script is only useful if it actually skips the expensive parts when the installed results are already present.
 
-#### `--with-native-compilation`
-Turns on native compilation support via libgccjit.
+The successful logic was:
 
-#### `--with-tree-sitter`
-Enables Tree-sitter integration.
+- reuse ICU if `/opt/icu75/bin/icuinfo` and `/opt/icu75/lib/libicuuc.so` exist
+- reuse WebKitGTK if pkg-config file and library exist under `/opt/wk240`
+- still rebuild Emacs, because that part is comparatively cheap and often what you are iterating on
 
-#### `--with-modules`
-Allows dynamic module support.
+That is why rerunning with no switches did **not** rebuild WebKitGTK again once it was installed successfully.
 
-#### `--with-cairo` and `--with-harfbuzz`
-These are the modern rendering/text shaping choices you normally want.
+### 9. The final runtime problem was rendering, not building
 
-#### `--with-rsvg`, `--with-webp`, `--with-imagemagick`
-Enable broader image handling support.
+This was the last and most important lesson.
 
-#### `--with-sqlite3`
-Useful for newer Emacs features that depend on SQLite.
+You had:
 
-#### `--with-gnutls`
-TLS support.
+- successful WebKit build
+- successful Emacs build
+- xwidgets enabled
+- `xwidget-webkit-browse-url` opening a buffer
 
-#### `--with-xml2`
-Useful for XML and HTML parsing features in Emacs.
+but one test page showed a blank main content area.
 
-#### `--with-gpm`
-Console mouse support; harmless if you want the feature available.
+That turned out not to be a missing xwidget feature at all. It was a runtime rendering path problem on this machine.
 
-## 14. Installing Emacs into Stow
+The successful run was:
 
-The `--prefix` is set to:
+```bash
+WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 GSK_RENDERER=cairo /usr/local/bin/emacs -Q
+```
 
-- `/usr/local/stow/<package>`
-
-That means `make install` writes a complete standalone package tree there.
-
-After that, `stow -R -d /usr/local/stow -t /usr/local <package>` activates it.
-
-That creates the visible `/usr/local/bin/emacs` symlink and corresponding shared data links.
-
-## 15. Sanity checks
-
-The builder checks:
-
-- `featurep 'xwidget-internal`
-- `image-type-available-p 'imagemagick`
-- that `/usr/local/bin/emacs` resolves through Stow
-- that `magick` or `convert` is available
-
-These checks are intentionally simple and fast.
-
-They do not prove every xwidget action will work perfectly, but they do prove the build has the expected core features wired in.
-
-## 16. Packaging
-
-The builder creates three payload archives:
-
-- `icu75.txz`
-- `wk240.txz`
-- `<emacs-stow-name>.txz`
-
-Why three instead of one enormous blind blob?
-
-Because this is easier to inspect, easier to re-use, and easier to debug.
-
-It also generates:
-
-- `BUILD-METADATA.txt`
-- `SHA256SUMS`
-- a final combined bundle tarball
-
-So you get both:
-
-- **modular payloads**
-- and **one hand-off bundle**
-
-That is the right compromise.
+and **that** is the real fix to document.
 
 ---
 
-# Client installer walkthrough
+## What those runtime variables do
 
-The client-side script is deliberately smaller.
+### `WEBKIT_DISABLE_COMPOSITING_MODE=1`
 
-Its job is not to build. Its job is to:
+This tells WebKitGTK to disable compositing mode.
 
-1. optionally verify checksums
-2. install runtime packages only
-3. extract the three payloads
-4. activate Emacs through Stow
-5. run checks
+In practice, this pushes WebKit away from an accelerated compositing path that can be problematic on some Linux graphics stacks, remote/X11 setups, virtualised environments, WSL-adjacent stacks, and certain driver combinations.
 
-## Why runtime packages are still needed
+For this build, it was the single most important runtime workaround.
 
-The portable bundle contains your private ICU and WebKitGTK stack and the built Emacs package.
+### `LIBGL_ALWAYS_SOFTWARE=1`
 
-It does **not** contain every generic runtime library that Debian would normally provide, nor should it.
+This tells Mesa to force software rendering.
 
-The client machine still needs Debian runtime packages such as:
+So instead of trying to use the system’s hardware GL stack, it falls back to software rendering.
 
-- GL stack pieces
-- GStreamer plugin packages
-- sandbox helpers
-- `libgccjit0`
-- `imagemagick`
-- `stow`
+That is slower, but it is often much more reliable for diagnosis and for awkward GPU/driver situations.
 
-That is normal. The client script is meant to avoid the source build, not to replace all system package management.
+### `GSK_RENDERER=cairo`
 
-## Why the client script verifies checksums if present
+This tells GTK’s scene kit to use the Cairo renderer.
 
-This is a cheap integrity check and is worth doing when you are moving bundles between machines.
-
-If `SHA256SUMS` is present alongside the payloads, the script checks it. If not, it carries on.
-
-That keeps the script convenient without throwing away a useful safeguard.
+That again avoids a more complex GL-oriented renderer path and keeps the drawing pipeline conservative and predictable.
 
 ---
 
-# Typical usage
+## Important: this is **not** the same as disabling the WebKit sandbox
 
-## On the build machine
+Do **not** confuse the successful workaround with turning off WebKit sandboxing.
 
-Put these files together in one directory:
-
-- `emacs-x11-webgtk-build-and-package-trixie.sh`
-- `emacs-x11-webgtk-client-install-trixie.sh`
-- `README.md`
-
-Run:
+The successful command was:
 
 ```bash
-chmod +x emacs-x11-webgtk-build-and-package-trixie.sh
-./emacs-x11-webgtk-build-and-package-trixie.sh --clean=none
+WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 GSK_RENDERER=cairo /usr/local/bin/emacs -Q
 ```
 
-For a fresh rebuild:
+It was **not** a sandbox-disabling command.
 
-```bash
-./emacs-x11-webgtk-build-and-package-trixie.sh --clean=deep
-```
+That distinction matters because:
 
-At the end, the artifact directory will contain:
+- the problem observed was rendering/compositing
+- the fix was rendering/compositing-related
+- there is no reason from this successful run to claim that the WebKit sandbox itself was the problem
 
-- `icu75.txz`
-- `wk240.txz`
-- `emacs-30.2-x11wk.txz`
-- `SHA256SUMS`
-- `BUILD-METADATA.txt`
-- client installer script
-- README
-- combined bundle tarball
+So the correct explanation is:
 
-## On the client machine
+> xwidgets were built correctly; runtime rendering on this machine required disabling WebKit compositing mode and forcing a software/Cairo rendering path.
 
-Copy the artifact directory or the relevant files into one directory and run:
-
-```bash
-chmod +x emacs-x11-webgtk-client-install-trixie.sh
-./emacs-x11-webgtk-client-install-trixie.sh
-```
-
-That installs runtime packages, extracts the payloads, activates Emacs via Stow, and runs checks.
+That is the accurate diagnosis.
 
 ---
 
-# Practical cautions
+## The build choices that proved successful
 
-## 1. Debian major version
+### WebKitGTK build shape
 
-This workflow is designed for **Debian 13.x** machines.
+The successful WebKitGTK configuration was intentionally narrow:
 
-Using a bundle built on 13.2 and installed on 13.4 is a reasonable expectation on the same architecture, because the private ICU and WebKitGTK stack travel with the build and the client script reinstalls the relevant Debian runtime packages.
+- GTK port
+- X11 target ON
+- Wayland target OFF
+- GTK4 OFF
+- Soup2 ON
+- JPEG XL OFF
+- introspection OFF
+- documentation OFF
+- MiniBrowser OFF
 
-Using the same bundle across different Debian majors is a different question and should not be assumed safe without testing.
+That reduces the number of moving parts and keeps the build aligned to the actual Emacs target.
 
-## 2. Architecture
+### Why introspection and docs were disabled
 
-Do not assume a bundle built on one architecture will work on another.
+They were not needed for Emacs xwidgets.
 
-## 3. X11 target
+Turning them off removed unnecessary build surface and avoided extra dependency churn.
 
-This workflow is intentionally X11/GTK3 oriented. It is not trying to be a generic Wayland build recipe.
+This did **not** reduce Emacs xwidget capability for the target outcome.
 
-## 4. `convert` vs `magick`
+### Why ImageMagick stayed enabled
 
-Different ImageMagick packaging or local habits may expose either `magick`, `convert`, or both. The sanity checks accept either.
+Because you wanted ImageMagick support in Emacs, and it was not the source of the xwidget problem.
+
+So it made sense to keep it enabled.
+
+### Why GTK3/X11
+
+Because this target was explicitly about a GTK3/X11 Emacs build, not a Wayland/PGTK build.
+
+That was a deliberate constraint, not an accident.
 
 ---
 
-# Final design summary
+## Rerun behaviour of the final script
 
-This build strategy is opinionated, but the opinions are sensible:
+With the final successful logic, running the script with **no switches** should be safe in the normal case.
 
-- keep the **private pinned dependency stack** under `/opt`
-- keep the **application install** under Stow
-- **disable GObject introspection and docs** because they are not needed here and they enlarge the failure surface
-- use **Ninja** because that is what the WebKitGTK CMake build wants
-- use **ImageMagick** both for Emacs support and for external image tooling convenience
-- set **umask 022** because portable build artifacts should unpack sanely
+### `--clean=none`
 
-That is the core of the system.
+This means:
 
-If you later decide to revise the pinned versions, the layout remains valid. You would just update the version variables and, if needed, the package names or feature flags that belong to those versions.
+- reuse installed ICU if present
+- reuse installed WebKitGTK if present
+- fetch sources only if missing
+- rebuild Emacs
+- restow Emacs
+- rerun verification
+
+So yes: with no switches, it should **not** redo the long WebKitGTK build if `/opt/wk240` is already complete and valid.
+
+### `--clean=light`
+
+This is for when you want to throw away build directories and source trees that are cheap to recreate, while keeping installed prefixes if they are still valid.
+
+### `--clean=deep`
+
+This wipes the workroot and installed private prefixes and rebuilds everything from scratch.
+
+Use that only when you really mean it, because WebKitGTK is the expensive part.
+
+---
+
+## Final successful verification state
+
+The successful final checks showed:
+
+- `GNU Emacs 30.2`
+- `libwebkit2gtk-4.0.so` loading from `/opt/wk240/lib`
+- ICU 75 loading from `/opt/icu75/lib`
+- `feature-xwidgets=t`
+- `module-file-suffix=.so`
+- batch sanity checks succeeding
+
+That means the core build and linkage were correct.
+
+The only remaining nuance was the need for the runtime rendering environment variables on this machine.
+
+---
+
+## Recommended way to launch this build on this machine
+
+For the known-good runtime path, use:
+
+```bash
+WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 GSK_RENDERER=cairo /usr/local/bin/emacs -Q
+```
+
+Once that is confirmed stable, you can decide how you want to make it convenient.
+
+Typical options are:
+
+- a shell alias
+- a small wrapper script
+- a desktop launcher
+- setting the environment only for this Emacs build, not globally
+
+The key point is that these settings should be treated as **app-specific runtime compatibility settings**, not as machine-wide defaults unless you actually want that.
+
+---
+
+## Bottom line
+
+The successful path was:
+
+1. build private ICU 75.1 under `/opt/icu75`
+2. build private WebKitGTK 2.40.5 under `/opt/wk240`
+3. build Emacs 30.2 with GTK3/X11 and xwidgets
+4. install Emacs into `/usr/local/stow/emacs-30.2-x11wk`
+5. activate it with Stow into `/usr/local`
+6. run Emacs with:
+
+```bash
+WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 GSK_RENDERER=cairo /usr/local/bin/emacs -Q
+```
+
+That is the working Debian 13 success path.
