@@ -413,7 +413,7 @@ build_emacs() {
 
   log "12) Configuring Emacs"
   ./configure \
-    --prefix="$EMACS_PREFIX/usr/local" \
+    --prefix="$EMACS_PREFIX" \
     --with-x-toolkit=gtk3 \
     --with-xwidgets \
     --with-cairo \
