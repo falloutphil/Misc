@@ -1,394 +1,484 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# -----------------------------------------------------------------------------
-# Emacs 30.2 for Debian 13 (Trixie)
-#
-# What this script does:
-#   1. Installs build dependencies on the build machine.
-#   2. Builds a private ICU under /opt/icu75.
-#   3. Builds a private WebKitGTK 2.40.5 under /opt/wk240, linked to that ICU.
-#   4. Builds Emacs with GTK3/X11, xwidgets and ImageMagick support.
-#   5. Installs Emacs under /usr/local/stow/<name> and activates it via GNU Stow.
-#   6. Produces a portable bundle in $HOME/dist containing:
-#        - icu75.txz
-#        - wk240.txz
-#        - <emacs-stow-name>.txz
-#        - client installer script
-#        - README
-#        - combined bundle tar.xz
-#
-# Why Stow is used for Emacs but not for ICU/WebKitGTK:
-#   - Emacs is the user-facing application we want to “install” neatly into
-#     /usr/local/bin, /usr/local/share, etc. GNU Stow excels at that job by
-#     managing a symlink farm from /usr/local/stow/<package> into /usr/local.
-#   - ICU and WebKitGTK are *private bundled dependencies* for this Emacs build,
-#     not general system libraries. Keeping them under /opt makes it obvious
-#     that they are local, non-Debian-managed builds and reduces the chance that
-#     other software accidentally links against them.
-#
-# Why xwidgets is painful:
-#   - Emacs xwidgets on GNU/Linux rely on GTK and WebKitGTK.
-#   - The distro version of WebKitGTK may be newer than the version that has
-#     historically behaved well with the exact Emacs/xwidgets combination you
-#     want to run.
-#   - Building a private, known-good WebKitGTK stack is therefore a pragmatic
-#     way to stabilize the result.
-#
-# Why GObject Introspection is disabled here:
-#   - WebKitGTK can optionally generate GIR/typelib metadata for language
-#     bindings and related tooling.
-#   - Emacs xwidgets do not need that metadata in order to *use* WebKitGTK.
-#   - In practice, introspection has been a recurring source of build pain,
-#     especially when you are trying to keep the build minimal and reproducible.
-#   - So we turn it off deliberately and also keep the related apt packages
-#     commented out below.
-# -----------------------------------------------------------------------------
+# ------------------------------------------------------------------
+# Stable Emacs 30.2 (GTK3/X11 + xwidgets) on Debian Trixie
+# WebKitGTK 2.40.5 linked to private ICU 75 in /opt/icu75
+# JPEG XL disabled; GI introspection/docs/minibrowser disabled
+# Re-runnable: use --clean={none|light|deep}
+# ------------------------------------------------------------------
 
-# ------------------------------
-# Tunables
-# ------------------------------
 WK_VER="${WK_VER:-2.40.5}"
-ICU_VER="${ICU_VER:-75_1}"
+ICU_VER="${ICU_VER:-75_1}"                 # ICU 75.1
+EMACS_VER="${EMACS_VER:-30.2}"
+
+WORKROOT="${WORKROOT:-$HOME/build-emacs-xw-x11}"
 WK_PREFIX="${WK_PREFIX:-/opt/wk240}"
 ICU_PREFIX="${ICU_PREFIX:-/opt/icu75}"
-EMACS_VER="${EMACS_VER:-30.2}"
-EMACS_STOW_NAME="${EMACS_STOW_NAME:-emacs-30.2-x11wk}"
-EMACS_STOW_DIR="/usr/local/stow/${EMACS_STOW_NAME}"
-BUILDROOT="${BUILDROOT:-$HOME/build-emacs-xw-x11}"
-DISTDIR="${DISTDIR:-$HOME/dist/${EMACS_STOW_NAME}}"
-BUNDLEDIR="${BUNDLEDIR:-$HOME/dist}"
-JOBS="${JOBS:-$(nproc)}"
-CLEAN="${CLEAN:-none}"
+STOW_DIR="${STOW_DIR:-/usr/local/stow}"
+EMACS_STOW_NAME="${EMACS_STOW_NAME:-emacs-${EMACS_VER}-x11wk}"
+EMACS_PREFIX="${EMACS_PREFIX:-${STOW_DIR}/${EMACS_STOW_NAME}}"
 
-# ------------------------------
-# Arg parsing
-# ------------------------------
+CLEAN_MODE="none"
+
+usage() {
+  cat <<EOF
+Usage: $0 [--clean=none|light|deep]
+
+  none  - keep everything possible
+  light - rebuild WebKit/Emacs build dirs, keep downloaded tarballs and source trees
+  deep  - wipe workroot and rebuild from scratch
+
+Environment overrides:
+  WK_VER ICU_VER EMACS_VER WORKROOT WK_PREFIX ICU_PREFIX STOW_DIR EMACS_STOW_NAME
+EOF
+}
+
 for arg in "$@"; do
   case "$arg" in
     --clean=none|--clean=light|--clean=deep)
-      CLEAN="${arg#--clean=}"
+      CLEAN_MODE="${arg#--clean=}"
+      ;;
+    -h|--help)
+      usage
+      exit 0
       ;;
     *)
-      echo "Unknown arg: $arg" >&2
-      exit 2
+      printf 'Unknown argument: %s\n' "$arg" >&2
+      usage >&2
+      exit 1
       ;;
   esac
 done
 
-# ------------------------------
-# Helpers
-# ------------------------------
-ts() { date +"[%H:%M:%S]"; }
-log() { printf "\n%s %s\n" "$(ts)" "$*"; }
-die() { printf "\nERROR: %s\n" "$*" >&2; exit 1; }
-stash_dir() {
-  [ -d "$1" ] || return 0
-  mv "$1" "${1}.bak.$(date +%Y%m%d-%H%M%S)"
+log() {
+  printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"
 }
+
+die() {
+  printf '\nERROR: %s\n' "$*" >&2
+  exit 1
+}
+
 need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "Required command not found: $1"
+  command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
-trap 'die "Build failed. See logs above."' ERR
 
-# A predictable umask matters for the final artifacts. 022 means:
-#   - owner can write
-#   - group/world can read
-# This avoids producing tarballs that unpack into weirdly private trees.
-umask 022
+sudo_keepalive() {
+  sudo -v
+}
 
-need_cmd sudo
-need_cmd curl
-need_cmd tar
-need_cmd sha256sum
+cleanup_sudo_timestamp() {
+  sudo -k || true
+}
+trap cleanup_sudo_timestamp EXIT
 
-# ------------------------------
-# 1) Build prerequisites
-# ------------------------------
-log "1) Installing build prerequisites (apt)"
-sudo apt update
+install_build_prereqs() {
+  log "1) Installing build prerequisites"
 
-# Core tooling.
-sudo apt install -y \
-  build-essential cmake ninja-build pkg-config curl ca-certificates \
-  python3 bison flex gperf gettext ruby ruby-dev ccache stow xz-utils file
+  sudo apt-get update
+  sudo apt-get install -y \
+    build-essential \
+    cmake \
+    ninja-build \
+    pkg-config \
+    curl \
+    ca-certificates \
+    python3 \
+    ruby \
+    ruby-dev \
+    bison \
+    flex \
+    gperf \
+    gettext \
+    xz-utils \
+    file \
+    rsync \
+    stow \
+    libcairo2-dev \
+    libgtk-3-dev \
+    libglib2.0-dev \
+    libepoxy-dev \
+    libharfbuzz-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libwebp-dev \
+    libtiff-dev \
+    libgif-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    libsqlite3-dev \
+    libopenjp2-7-dev \
+    libwoff-dev \
+    liblcms2-dev \
+    libatk1.0-dev \
+    libatk-bridge2.0-dev \
+    libx11-dev \
+    libxext-dev \
+    libxrender-dev \
+    libxi-dev \
+    libxfixes-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    libxcomposite-dev \
+    libxdamage-dev \
+    libxrandr-dev \
+    libx11-xcb-dev \
+    libxcb1-dev \
+    libxcb-shm0-dev \
+    libxt-dev \
+    libxtst-dev \
+    libegl-dev \
+    libgl-dev \
+    libgles-dev \
+    libglvnd-dev \
+    libdrm-dev \
+    libgbm-dev \
+    libsoup2.4-dev \
+    libsecret-1-dev \
+    libenchant-2-dev \
+    libhyphen-dev \
+    libavif-dev \
+    libseccomp-dev \
+    libmanette-0.2-dev \
+    libevdev-dev \
+    libgcrypt20-dev \
+    libgpg-error-dev \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav \
+    bubblewrap \
+    xdg-dbus-proxy \
+    glib-networking \
+    libjansson-dev \
+    libtree-sitter-dev \
+    librsvg2-dev \
+    libmailutils-dev \
+    libgccjit-14-dev \
+    libxpm-dev \
+    libncurses-dev \
+    libacl1-dev \
+    libgpm-dev \
+    libgnutls28-dev \
+    imagemagick \
+    libmagickwand-7.q16-dev
+}
 
-# GTK / X11 / rendering / media dependencies needed by WebKitGTK and Emacs.
-sudo apt install -y \
-  libgtk-3-dev libglib2.0-dev libepoxy-dev libharfbuzz-dev libpango1.0-dev \
-  libjpeg-dev libpng-dev libwebp-dev libtiff-dev libgif-dev \
-  libxml2-dev libxslt1-dev libsqlite3-dev libopenjp2-7-dev \
-  libatk1.0-dev libatk-bridge2.0-dev \
-  libx11-dev libxext-dev libxrender-dev libxi-dev libxfixes-dev \
-  libxinerama-dev libxcursor-dev libxcomposite-dev libxrandr-dev \
-  libx11-xcb-dev libxcb1-dev libxcb-shm0-dev \
-  libegl-dev libgl-dev libgles-dev libglvnd-dev libdrm-dev \
-  bubblewrap xdg-dbus-proxy \
-  libsoup2.4-dev libsecret-1-dev libenchant-2-dev libhyphen-dev \
-  libavif-dev libseccomp-dev libwoff-dev liblcms2-dev libmanette-0.2-dev \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  libgstreamer-plugins-bad1.0-dev \
-  gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-libav
+prepare_workspace() {
+  log "2) Preparing workspace at ${WORKROOT} (clean=${CLEAN_MODE})"
 
-# Emacs-specific build dependencies.
-sudo apt install -y \
-  libjansson-dev libtree-sitter-dev librsvg2-dev libmailutils-dev \
-  libgccjit-14-dev libxpm-dev libncurses-dev libtinfo-dev libxt-dev \
-  libacl1-dev libasound2-dev libgpm-dev libcairo2-dev libgnutls28-dev
+  case "$CLEAN_MODE" in
+    deep)
+      rm -rf "$WORKROOT"
+      ;;
+    light)
+      rm -rf \
+        "$WORKROOT/webkitgtk-${WK_VER}/build" \
+        "$WORKROOT/emacs-${EMACS_VER}/build"
+      ;;
+    none)
+      :
+      ;;
+  esac
 
-# ImageMagick support for Emacs image handling and for the external sprite/image
-# tooling used by your own Emacs Lisp projects.
-sudo apt install -y imagemagick libmagickwand-7.q16-dev
+  mkdir -p "$WORKROOT"
+}
 
-# Optional packages for WebKitGTK introspection and docs.
-# They are *not* used by this build because ENABLE_INTROSPECTION=OFF and
-# ENABLE_DOCUMENTATION=OFF below. They remain here as commented reference only.
-# sudo apt install -y gobject-introspection libgirepository1.0-dev gi-docgen
+build_private_icu() {
+  log "3) Building private ICU 75.1 -> ${ICU_PREFIX}"
 
-# ------------------------------
-# 2) Runtime prerequisites on the build machine
-# ------------------------------
-log "2) Ensuring runtime prerequisites (TLS/GL/sandbox/native-comp/ImageMagick)"
-sudo apt install -y \
-  glib-networking ca-certificates libgl1-mesa-dri libegl1 libgbm1 \
-  libsoup2.4-1 libsecret-1-0 libenchant-2-2 libhyphen0 liblcms2-2 \
-  gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly \
-  gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa \
-  libgccjit0 imagemagick
+  local icu_tar="icu4c-${ICU_VER}-src.tgz"
+  local icu_url="https://github.com/unicode-org/icu/releases/download/release-75-1/${icu_tar}"
+  local icu_src_root="${WORKROOT}/icu"
+  local icu_build_dir="${icu_src_root}/source"
 
-# ------------------------------
-# 3) Prepare workspace
-# ------------------------------
-log "3) Preparing workspace at $BUILDROOT (clean=$CLEAN)"
-mkdir -p "$BUILDROOT" "$DISTDIR"
-cd "$BUILDROOT"
+  if [[ "$CLEAN_MODE" == "deep" ]]; then
+    sudo rm -rf "$ICU_PREFIX"
+  fi
 
-if [ "$CLEAN" = "deep" ]; then
-  stash_dir icu
-  stash_dir "webkitgtk-${WK_VER}"
-  rm -rf "emacs-${EMACS_VER}"
-fi
+  if [[ -x "${ICU_PREFIX}/bin/icuinfo" ]] && [[ -f "${ICU_PREFIX}/lib/libicuuc.so" ]]; then
+    log "3a) Reusing existing ICU at ${ICU_PREFIX}"
+    return
+  fi
 
-# ccache speeds up rebuilds dramatically on iteration.
-export CC="ccache gcc"
-export CXX="ccache g++"
+  rm -rf "$icu_src_root"
+  mkdir -p "$WORKROOT"
 
-# ------------------------------
-# 4) Build ICU privately under /opt/icu75
-# ------------------------------
-log "4) Building ICU ${ICU_VER/_/.} -> $ICU_PREFIX"
-ICU_TAG="${ICU_VER/_/-}"
-ICU_TARBALL="icu4c-${ICU_VER}-src.tgz"
+  curl -L "$icu_url" -o "${WORKROOT}/${icu_tar}"
+  tar -xzf "${WORKROOT}/${icu_tar}" -C "$WORKROOT"
 
-if [ ! -d icu ]; then
-  rm -f "$ICU_TARBALL"
-  curl -fL --retry 3 -o "$ICU_TARBALL" \
-    "https://github.com/unicode-org/icu/releases/download/release-${ICU_TAG}/${ICU_TARBALL}"
-  tar tzf "$ICU_TARBALL" >/dev/null
-  tar xzf "$ICU_TARBALL"
-fi
+  [[ -d "$icu_src_root" ]] || die "Expected ICU source dir ${icu_src_root} after extraction"
+  [[ -d "$icu_build_dir" ]] || die "Expected ICU build dir ${icu_build_dir} after extraction"
 
-pushd icu/source >/dev/null
-[ "$CLEAN" = "light" ] && make clean || true
-./configure --prefix="$ICU_PREFIX" --disable-samples --disable-tests
-make -j"$JOBS"
-sudo make install
-popd >/dev/null
+  pushd "$icu_build_dir" >/dev/null
+  ./configure --prefix="$ICU_PREFIX"
+  make -j"$(nproc)"
+  sudo make install
+  popd >/dev/null
 
-# ------------------------------
-# 5) Fetch WebKitGTK source
-# ------------------------------
-log "5) Fetching WebKitGTK $WK_VER"
-[ -f "webkitgtk-${WK_VER}.tar.xz" ] || \
-  curl -fLO --retry 3 "https://webkitgtk.org/releases/webkitgtk-${WK_VER}.tar.xz"
-[ -d "webkitgtk-${WK_VER}" ] || tar -xf "webkitgtk-${WK_VER}.tar.xz"
+  [[ -x "${ICU_PREFIX}/bin/icuinfo" ]] || die "ICU install failed: icuinfo missing"
+  [[ -f "${ICU_PREFIX}/lib/libicuuc.so" ]] || die "ICU install failed: libicuuc.so missing"
+}
 
-# ------------------------------
-# 6) Configure WebKitGTK
-# ------------------------------
-log "6) Configuring WebKitGTK -> $WK_PREFIX"
-mkdir -p "webkitgtk-${WK_VER}/build"
-cd "webkitgtk-${WK_VER}/build"
-[ "$CLEAN" = "light" ] && ninja -t clean || true
-sudo mkdir -p "$WK_PREFIX"
+fetch_webkit() {
+  log "4) Fetching WebKitGTK ${WK_VER}"
 
-# Force this build to prefer our private ICU instead of the system one.
-export CMAKE_PREFIX_PATH="${ICU_PREFIX}${CMAKE_PREFIX_PATH+:$CMAKE_PREFIX_PATH}"
-export PKG_CONFIG_PATH="${ICU_PREFIX}/lib/pkgconfig${PKG_CONFIG_PATH+:$PKG_CONFIG_PATH}"
-export CFLAGS="-I${ICU_PREFIX}/include${CFLAGS:+ $CFLAGS}"
-export CXXFLAGS="-I${ICU_PREFIX}/include${CXXFLAGS:+ $CXXFLAGS}"
-export LDFLAGS="-Wl,-rpath,${ICU_PREFIX}/lib${LDFLAGS:+ $LDFLAGS}"
+  local wk_tar="webkitgtk-${WK_VER}.tar.xz"
+  local wk_url="https://webkitgtk.org/releases/${wk_tar}"
+  local wk_src_dir="${WORKROOT}/webkitgtk-${WK_VER}"
 
-cmake .. -GNinja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$WK_PREFIX" \
-  -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
-  -DICU_ROOT="$ICU_PREFIX" \
-  -DPORT=GTK \
-  -DENABLE_X11_TARGET=ON \
-  -DENABLE_WAYLAND_TARGET=OFF \
-  -DUSE_GTK4=OFF \
-  -DUSE_SOUP2=ON \
-  -DUSE_JPEGXL=OFF \
-  -DENABLE_INTROSPECTION=OFF \
-  -DENABLE_DOCUMENTATION=OFF \
-  -DENABLE_MINIBROWSER=OFF
+  if [[ ! -d "$wk_src_dir" ]]; then
+    curl -L "$wk_url" -o "${WORKROOT}/${wk_tar}"
+    tar -xf "${WORKROOT}/${wk_tar}" -C "$WORKROOT"
+  fi
+}
 
-# ------------------------------
-# 7) Build and install WebKitGTK
-# ------------------------------
-log "7) Building WebKitGTK (jobs: $JOBS)"
-ninja -j"$JOBS"
-sudo ninja install
-cd "$BUILDROOT"
+configure_and_build_webkit() {
+  local wk_src_dir="${WORKROOT}/webkitgtk-${WK_VER}"
+  local wk_build_dir="${wk_src_dir}/build"
 
-# ------------------------------
-# 8) Verify WebKitGTK pkg-config version
-# ------------------------------
-log "8) Verifying WebKitGTK version"
-PKG_CONFIG_PATH="$WK_PREFIX/lib/pkgconfig" pkg-config --exists webkit2gtk-4.0
-WK_BUILT_VER="$(PKG_CONFIG_PATH="$WK_PREFIX/lib/pkgconfig" pkg-config --modversion webkit2gtk-4.0 || true)"
-[ "${WK_BUILT_VER:-}" = "$WK_VER" ] || die "Expected $WK_VER, got '${WK_BUILT_VER:-none}'"
+  [[ -d "$wk_src_dir" ]] || die "WebKit source directory missing: ${wk_src_dir}"
 
-# ------------------------------
-# 9) Build Emacs into a Stow package directory
-# ------------------------------
-log "9) Building Emacs $EMACS_VER -> $EMACS_STOW_DIR"
-[ -f "emacs-${EMACS_VER}.tar.xz" ] || \
-  curl -fLO --retry 3 "https://ftp.gnu.org/gnu/emacs/emacs-${EMACS_VER}.tar.xz"
-rm -rf "emacs-${EMACS_VER}"
-tar -xf "emacs-${EMACS_VER}.tar.xz"
-cd "emacs-${EMACS_VER}"
+  log "5) Resetting WebKit build directory"
+  rm -rf "$wk_build_dir"
+  mkdir -p "$wk_build_dir"
 
-export PKG_CONFIG_PATH="$WK_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH+:$PKG_CONFIG_PATH}"
-export LDFLAGS="-Wl,-rpath,${WK_PREFIX}/lib -Wl,-rpath,${ICU_PREFIX}/lib${LDFLAGS:+ $LDFLAGS}"
+  sudo mkdir -p "$WK_PREFIX"
 
-./configure \
-  --prefix="$EMACS_STOW_DIR" \
-  --with-x=yes \
-  --with-x-toolkit=gtk3 \
-  --with-xwidgets \
-  --with-native-compilation \
-  --with-tree-sitter \
-  --with-modules \
-  --with-cairo \
-  --with-harfbuzz \
-  --with-mailutils \
-  --with-rsvg \
-  --with-webp \
-  --with-imagemagick \
-  --with-sqlite3 \
-  --with-gnutls \
-  --with-xml2 \
-  --with-gpm
+  pushd "$wk_build_dir" >/dev/null
 
-make -j"$JOBS"
-sudo rm -rf "$EMACS_STOW_DIR"
-sudo make install
+  unset CC CXX CPP CFLAGS CXXFLAGS LDFLAGS
+  unset CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
+  unset CCACHE_DIR
+  export CCACHE_DISABLE=1
 
-# ------------------------------
-# 10) Stow Emacs into /usr/local
-# ------------------------------
-log "10) Activating Emacs via GNU Stow"
-# GNU Stow is a symlink farm manager. The actual package lives in
-#   /usr/local/stow/<package>
-# and Stow creates the visible links in
-#   /usr/local/bin, /usr/local/share, etc.
-# This gives you a very clean upgrade/uninstall story for software that you
-# build yourself.
-sudo mkdir -p /usr/local/stow
-sudo rm -f \
-  /usr/local/share/applications/emacsclient.desktop \
-  /usr/local/share/applications/emacsclient-mail.desktop \
-  /usr/local/share/applications/emacs-mail.desktop || true
-sudo stow -R -d /usr/local/stow -t /usr/local "$EMACS_STOW_NAME"
+  export CC=/usr/bin/gcc
+  export CXX=/usr/bin/g++
+  export PKG_CONFIG_PATH="${ICU_PREFIX}/lib/pkgconfig${PKG_CONFIG_PATH+:$PKG_CONFIG_PATH}"
 
-# ------------------------------
-# 11) Sanity checks
-# ------------------------------
-log "11) Running sanity checks"
-"$EMACS_STOW_DIR/bin/emacs" -Q --batch \
-  --eval "(princ (featurep 'xwidget-internal))" | grep -q '^t$' \
-  || die "xwidgets not available"
+  hash -r
 
-"$EMACS_STOW_DIR/bin/emacs" -Q --batch \
-  --eval "(princ (if (image-type-available-p 'imagemagick) 't 'nil))" | grep -q '^t$' \
-  || die "ImageMagick support not available"
+  log "6) Configuring WebKitGTK"
+  cmake .. -GNinja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$WK_PREFIX" \
+    -DCMAKE_PREFIX_PATH="$ICU_PREFIX" \
+    -DCMAKE_BUILD_RPATH="$ICU_PREFIX/lib" \
+    -DCMAKE_INSTALL_RPATH="$WK_PREFIX/lib;$ICU_PREFIX/lib" \
+    -DICU_ROOT="$ICU_PREFIX" \
+    -DICU_INCLUDE_DIR="$ICU_PREFIX/include" \
+    -DICU_UC_LIBRARY="$ICU_PREFIX/lib/libicuuc.so" \
+    -DICU_I18N_LIBRARY="$ICU_PREFIX/lib/libicui18n.so" \
+    -DICU_DATA_LIBRARY="$ICU_PREFIX/lib/libicudata.so" \
+    -DPORT=GTK \
+    -DENABLE_X11_TARGET=ON \
+    -DENABLE_WAYLAND_TARGET=OFF \
+    -DUSE_GTK4=OFF \
+    -DUSE_SOUP2=ON \
+    -DUSE_JPEGXL=OFF \
+    -DENABLE_INTROSPECTION=OFF \
+    -DENABLE_DOCUMENTATION=OFF \
+    -DENABLE_MINIBROWSER=OFF \
+    -DCMAKE_C_COMPILER=/usr/bin/gcc \
+    -DCMAKE_CXX_COMPILER=/usr/bin/g++
 
-readlink -f /usr/local/bin/emacs >/dev/null || die "emacs not on PATH via stow"
-command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1 \
-  || die "Neither magick nor convert found on PATH"
+  log "6a) Verifying compiler setup before build"
 
-echo "OK: Emacs + xwidgets + ImageMagick ready"
+  local cmake_c_compiler
+  local cmake_cxx_compiler
+  local cmake_c_launcher
+  local cmake_cxx_launcher
+  local resolved_c
+  local resolved_cxx
+  local expected_c
+  local expected_cxx
 
-# ------------------------------
-# 12) Package portable artifacts
-# ------------------------------
-log "12) Creating portable artifact set under $DISTDIR"
-rm -rf "$DISTDIR"
-mkdir -p "$DISTDIR"
+  cmake_c_compiler="$(sed -n 's/^CMAKE_C_COMPILER:.*=//p' CMakeCache.txt | head -n1)"
+  cmake_cxx_compiler="$(sed -n 's/^CMAKE_CXX_COMPILER:.*=//p' CMakeCache.txt | head -n1)"
+  cmake_c_launcher="$(sed -n 's/^CMAKE_C_COMPILER_LAUNCHER:.*=//p' CMakeCache.txt | head -n1)"
+  cmake_cxx_launcher="$(sed -n 's/^CMAKE_CXX_COMPILER_LAUNCHER:.*=//p' CMakeCache.txt | head -n1)"
 
-# The umask is already 022 globally, but make it explicit again for packaging.
-umask 022
+  resolved_c="$(readlink -f "${cmake_c_compiler:-}" 2>/dev/null || true)"
+  resolved_cxx="$(readlink -f "${cmake_cxx_compiler:-}" 2>/dev/null || true)"
+  expected_c="$(readlink -f /usr/bin/gcc)"
+  expected_cxx="$(readlink -f /usr/bin/g++)"
 
-sudo tar -C / -cJf "$DISTDIR/icu75.txz" opt/icu75
-sudo tar -C / -cJf "$DISTDIR/wk240.txz" opt/wk240
-sudo tar -C /usr/local/stow -cJf "$DISTDIR/${EMACS_STOW_NAME}.txz" "$EMACS_STOW_NAME"
+  printf 'C compiler from cache: %s\n' "${cmake_c_compiler:-<unset>}"
+  printf 'CXX compiler from cache: %s\n' "${cmake_cxx_compiler:-<unset>}"
+  printf 'Resolved C compiler: %s\n' "${resolved_c:-<unset>}"
+  printf 'Resolved CXX compiler: %s\n' "${resolved_cxx:-<unset>}"
 
-# Metadata to make auditing and troubleshooting easier later.
-cat > "$DISTDIR/BUILD-METADATA.txt" <<META
-Build timestamp: $(date -Is)
-Build host: $(hostname)
-Debian release info:
-$(cat /etc/os-release)
-Kernel: $(uname -a)
-WebKitGTK version: $WK_VER
-ICU version: ${ICU_VER/_/.}
-Emacs version: $EMACS_VER
-Emacs stow name: $EMACS_STOW_NAME
-ICU prefix: $ICU_PREFIX
-WebKit prefix: $WK_PREFIX
-Stow dir: $EMACS_STOW_DIR
-META
+  [[ -n "${resolved_c:-}" ]] \
+    || die "C compiler missing from CMakeCache.txt"
 
-# Copy the client installer and README into the dist tree if they exist next to
-# this script. This makes the builder the single command that emits a complete
-# delivery bundle.
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-[ -f "$SCRIPT_DIR/emacs-x11-webgtk-client-install-trixie.sh" ] && \
-  cp "$SCRIPT_DIR/emacs-x11-webgtk-client-install-trixie.sh" "$DISTDIR/"
-[ -f "$SCRIPT_DIR/README.md" ] && cp "$SCRIPT_DIR/README.md" "$DISTDIR/"
+  [[ -n "${resolved_cxx:-}" ]] \
+    || die "CXX compiler missing from CMakeCache.txt"
 
-(
-  cd "$DISTDIR"
-  sha256sum icu75.txz wk240.txz "${EMACS_STOW_NAME}.txz" > SHA256SUMS
-)
+  [[ "$resolved_c" == "$expected_c" ]] \
+    || die "C compiler does not resolve to /usr/bin/gcc (got: ${resolved_c:-unset})"
 
-# Build one combined bundle so you can hand over a single artifact tree if you
-# want to. The separate txz files remain useful for inspection and re-use.
-COMBINED_BUNDLE="$BUNDLEDIR/${EMACS_STOW_NAME}-bundle.tar.xz"
-tar -C "$BUNDLEDIR" -cJf "$COMBINED_BUNDLE" "${EMACS_STOW_NAME}"
-sha256sum "$COMBINED_BUNDLE" > "$COMBINED_BUNDLE.sha256"
+  [[ "$resolved_cxx" == "$expected_cxx" ]] \
+    || die "CXX compiler does not resolve to /usr/bin/g++ (got: ${resolved_cxx:-unset})"
 
-cat <<EOF2
+  [[ -z "${cmake_c_launcher:-}" ]] \
+    || die "C compiler launcher still configured: ${cmake_c_launcher}"
 
-Build complete.
+  [[ -z "${cmake_cxx_launcher:-}" ]] \
+    || die "CXX compiler launcher still configured: ${cmake_cxx_launcher}"
 
-Artifacts directory:
-  $DISTDIR
+  log "7) Building WebKitGTK"
+  ninja -j"$(nproc)"
 
-Combined hand-off bundle:
-  $COMBINED_BUNDLE
-  $COMBINED_BUNDLE.sha256
+  log "8) Installing WebKitGTK -> ${WK_PREFIX}"
+  sudo ninja install
 
-Contents:
-  icu75.txz
-  wk240.txz
-  ${EMACS_STOW_NAME}.txz
-  SHA256SUMS
-  BUILD-METADATA.txt
-  emacs-x11-webgtk-client-install-trixie.sh   (if present next to this script)
-  README.md                                   (if present next to this script)
+  popd >/dev/null
 
-This build machine now also has Emacs activated locally via GNU Stow.
-EOF2
+  [[ -f "${WK_PREFIX}/lib/libwebkit2gtk-4.1.so" || -f "${WK_PREFIX}/lib/libwebkit2gtk-4.0.so" ]] \
+    || die "WebKit install failed: library not found in ${WK_PREFIX}/lib"
+}
+
+fetch_emacs() {
+  log "9) Fetching Emacs ${EMACS_VER}"
+
+  local emacs_tar="emacs-${EMACS_VER}.tar.xz"
+  local emacs_url="https://ftp.gnu.org/gnu/emacs/${emacs_tar}"
+  local emacs_src_dir="${WORKROOT}/emacs-${EMACS_VER}"
+
+  if [[ ! -d "$emacs_src_dir" ]]; then
+    curl -L "$emacs_url" -o "${WORKROOT}/${emacs_tar}"
+    tar -xf "${WORKROOT}/${emacs_tar}" -C "$WORKROOT"
+  fi
+}
+
+build_emacs() {
+  local emacs_src_dir="${WORKROOT}/emacs-${EMACS_VER}"
+
+  [[ -d "$emacs_src_dir" ]] || die "Emacs source directory missing: ${emacs_src_dir}"
+
+  log "10) Preparing Emacs install prefix at ${EMACS_PREFIX}"
+  sudo mkdir -p "$EMACS_PREFIX"
+  sudo chown "$(id -u):$(id -g)" "$EMACS_PREFIX"
+
+  pushd "$emacs_src_dir" >/dev/null
+
+  log "11) Cleaning previous Emacs build"
+  make distclean >/dev/null 2>&1 || true
+
+  export PKG_CONFIG_PATH="${WK_PREFIX}/lib/pkgconfig:${ICU_PREFIX}/lib/pkgconfig${PKG_CONFIG_PATH+:$PKG_CONFIG_PATH}"
+  export CPPFLAGS="-I${WK_PREFIX}/include -I${ICU_PREFIX}/include"
+  export LDFLAGS="-Wl,-rpath,${WK_PREFIX}/lib -Wl,-rpath,${ICU_PREFIX}/lib -L${WK_PREFIX}/lib -L${ICU_PREFIX}/lib"
+
+  log "12) Configuring Emacs"
+  ./configure \
+    --prefix="$EMACS_PREFIX/usr/local" \
+    --with-x-toolkit=gtk3 \
+    --with-xwidgets \
+    --with-cairo \
+    --with-native-compilation \
+    --with-json \
+    --with-tree-sitter \
+    --with-mailutils \
+    --with-imagemagick \
+    --with-rsvg \
+    --with-jpeg \
+    --with-png \
+    --with-tiff \
+    --with-gif \
+    --with-webp \
+    --with-xinput2 \
+    --with-harfbuzz \
+    --with-gnutls \
+    --with-modules
+
+  log "12a) Verifying Emacs configure result"
+  if ! grep -q '^HAVE_XWIDGETS=yes' src/config.h 2>/dev/null; then
+    grep -n 'xwidget\|webkit\|HAVE_XWIDGETS' config.log || true
+    die "Emacs configure did not enable xwidgets"
+  fi
+
+  log "13) Building Emacs"
+  make -j"$(nproc)"
+
+  log "14) Installing Emacs into stow tree"
+  make install
+
+  popd >/dev/null
+}
+
+stow_emacs() {
+  log "15) Stowing ${EMACS_STOW_NAME} into /usr/local"
+
+  if [[ -d "${STOW_DIR}/${EMACS_STOW_NAME}" ]]; then
+    sudo stow -D -d "$STOW_DIR" -t /usr/local "$EMACS_STOW_NAME" 2>/dev/null || true
+    sudo stow -d "$STOW_DIR" -t /usr/local "$EMACS_STOW_NAME"
+  else
+    die "Expected stow directory missing: ${STOW_DIR}/${EMACS_STOW_NAME}"
+  fi
+}
+
+run_tests() {
+  log "16) Running verification tests"
+
+  local emacs_bin="/usr/local/bin/emacs"
+
+  [[ -x "$emacs_bin" ]] || die "Installed emacs binary not found at $emacs_bin"
+
+  "$emacs_bin" --version | head -n 1
+
+  ldd "$emacs_bin" | grep -E 'webkit|icu|xwidget' || true
+
+  "$emacs_bin" -Q --batch \
+    --eval "(progn
+              (princ (format \"system-configuration=%s\n\" system-configuration))
+              (princ (format \"feature-xwidgets=%s\n\" (featurep 'xwidget-internal)))
+              (princ (format \"module-file-suffix=%s\n\" module-file-suffix))
+              (princ \"ok\n\"))"
+
+  "$emacs_bin" -Q --batch \
+    --eval "(unless (featurep 'xwidget-internal) (kill-emacs 11))"
+
+  log "17) Done"
+  cat <<EOF
+Installed:
+  Emacs prefix:   ${EMACS_PREFIX}
+  WebKit prefix:  ${WK_PREFIX}
+  ICU prefix:     ${ICU_PREFIX}
+
+Smoke test:
+  /usr/local/bin/emacs -Q
+EOF
+}
+
+main() {
+  need_cmd sudo
+  need_cmd curl
+  need_cmd tar
+  need_cmd cmake
+  need_cmd ninja
+  need_cmd gcc
+  need_cmd g++
+  need_cmd make
+  need_cmd stow
+  need_cmd readlink
+  need_cmd sed
+  need_cmd grep
+
+  sudo_keepalive
+  install_build_prereqs
+  prepare_workspace
+  build_private_icu
+  fetch_webkit
+  configure_and_build_webkit
+  fetch_emacs
+  build_emacs
+  stow_emacs
+  run_tests
+}
+
+main "$@"
