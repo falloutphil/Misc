@@ -11,7 +11,7 @@
 # kb-tool.sh — Project-scoped Chroma MCP toolkit for Claude Code
 #
 # Features:
-#   - install : pipx-install chroma-mcp + PDF dependencies (PyMuPDF)
+#   - install : pipx-install patched chroma-mcp + PDF dependencies (PyMuPDF)
 #   - init    : create project structure (.chroma, textbooks/, bin/chroma-mcp-here)
 #   - ingest  : parse PDFs in textbooks/ and upsert chunks into project-local Chroma DB
 #   - add-mcp : register a Claude MCP that uses the project-local DB (wrapper)
@@ -29,6 +29,9 @@
 # Requirements:
 #   - bash, python3, pipx, claude CLI (for add-mcp), and system libs needed by PyMuPDF
 #   - chroma-mcp will be installed by `install`
+#   - this currently installs the falloutphil fork because upstream 0.2.6
+#     prints human-readable startup text to stdout, which breaks Codex's
+#     strict stdio MCP transport; the fork redirects that text to stderr
 #   - you may want to add a CLAUDE.md file to the root of your project to tell Claude about the MCP tool
 #
 # Usage examples:
@@ -117,7 +120,7 @@ Examples:
   ./kb-tool.sh ingest --gc-orphans 0
 
 Notes:
-  - "install" uses pipx: pipx install chroma-mcp && pipx runpip chroma-mcp install PyMuPDF chromadb>=1.0.10
+  - "install" uses pipx with the patched falloutphil fork of chroma-mcp, then injects PDF deps
   - The wrapper bin/chroma-mcp-here exports CHROMA_MCP_DIR to ensure the MCP uses the same DB.
   - The ingest step writes a manifest.json file in the DB dir for selective updates and orphan GC.
   - Incremental ingest: unchanged PDFs (by digest) are skipped; changed PDFs are re-embedded in place.
@@ -209,12 +212,11 @@ PY
 
 cmd_install() {
   need_cmd pipx
-  log "Installing chroma-mcp with pipx…"
-  if ! pipx list | grep -q '^package chroma-mcp'; then
-    pipx install chroma-mcp || die "pipx install chroma-mcp failed"
-  else
-    ok "chroma-mcp already installed"
-  fi
+  log "Installing patched chroma-mcp with pipx…"
+  # Use the patched fork for now: Codex requires stdout to contain only
+  # MCP protocol frames, and upstream chroma-mcp 0.2.6 emits startup
+  # text on stdout which causes `Transport closed` failures.
+  pipx install --force "git+https://github.com/falloutphil/chroma-mcp.git" || die "pipx install chroma-mcp failed"
   log "Injecting/Upgrading Python deps into chroma-mcp venv…"
   # Base deps (no GPU stuff here)
   pipx runpip chroma-mcp install --upgrade "chromadb>=1.0.10" PyMuPDF || die "pipx runpip failed (base deps)"
