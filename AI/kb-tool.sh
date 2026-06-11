@@ -8,13 +8,14 @@
 # Optional install to PATH:
 #   install -Dm755 kb-tool.sh ~/.local/bin/kb-tool.sh
 
-# kb-tool.sh — Project-scoped Chroma MCP toolkit for Claude Code
+# kb-tool.sh — Project-scoped Chroma MCP toolkit for Claude Code and Codex
 #
 # Features:
 #   - install : pipx-install patched chroma-mcp + PDF dependencies (PyMuPDF)
-#   - init    : create project structure (.chroma, textbooks/, bin/chroma-mcp-here)
+#   - init    : create project structure (.chroma, textbooks/, bin/chroma-mcp-here, agent config)
 #   - ingest  : parse PDFs in textbooks/ and upsert chunks into project-local Chroma DB
-#   - add-mcp : register a Claude MCP that uses the project-local DB (wrapper)
+#   - add-mcp : write project Claude Code + Codex MCP config
+#   - agent-config : write/update project Claude Code + Codex MCP config
 #   - status  : show current config & sanity checks
 #   - all     : install + init + ingest + add-mcp
 #   - export  : dump ChromaDB and settings to tarball to copy elsewhere
@@ -27,7 +28,7 @@
 #   - Clear logs and helpful errors
 #
 # Requirements:
-#   - bash, python3, pipx, claude CLI (for add-mcp), and system libs needed by PyMuPDF
+#   - bash, python3, pipx, and system libs needed by PyMuPDF
 #   - chroma-mcp will be installed by `install`
 #   - this currently installs the falloutphil fork because upstream 0.2.6
 #     prints human-readable startup text to stdout, which breaks Codex's
@@ -39,6 +40,7 @@
 #   ./kb-tool.sh init --project-dir ~/git/myproj
 #   ./kb-tool.sh ingest --chunk-size 950 --chunk-overlap 220
 #   ./kb-tool.sh add-mcp --mcp-name textbooks-myproj
+#   ./kb-tool.sh agent-config
 #
 # Exit codes:
 #   0 on success, non-zero on error.
@@ -85,9 +87,10 @@ kb-tool.sh — Project-scoped Chroma MCP toolkit
 
 Commands:
   install           Install chroma-mcp via pipx and inject PDF deps (PyMuPDF).
-  init              Create project layout and MCP wrapper in ./bin/.
+  init              Create project layout, wrapper, and project agent config.
   ingest            Ingest PDFs from textbooks/ to the project-local Chroma DB.
-  add-mcp           Register a Claude MCP that points at the project DB (wrapper).
+  add-mcp           Write/update project Claude Code + Codex MCP config.
+  agent-config      Same as add-mcp; writes project agent config only.
   status            Print resolved paths and environment checks.
   export            Create a compressed tarball of the project-local DB for transfer.
   import            Import a previously exported tarball into the project DB dir.
@@ -111,6 +114,7 @@ Examples:
   ./kb-tool.sh all
   ./kb-tool.sh ingest --project-dir ~/git/myproj --chunk-size 950 --chunk-overlap 220
   ./kb-tool.sh add-mcp --mcp-name textbooks-ml-papers
+  ./kb-tool.sh agent-config --project-dir ~/git/myproj
   ./kb-tool.sh export --file /tmp/myproj-kb.tar.gz
   ./kb-tool.sh import --file /tmp/myproj-kb.tar.gz
 
@@ -122,6 +126,9 @@ Examples:
 Notes:
   - "install" uses pipx with the patched falloutphil fork of chroma-mcp, then injects PDF deps
   - The wrapper bin/chroma-mcp-here exports CHROMA_MCP_DIR to ensure the MCP uses the same DB.
+  - Project Codex config is written to .codex/config.toml as MCP server "textbooks".
+  - Project Claude Code shared MCP config is written to .mcp.json.
+  - Project Claude Code local approval config is written to .claude/settings.local.json.
   - The ingest step writes a manifest.json file in the DB dir for selective updates and orphan GC.
   - Incremental ingest: unchanged PDFs (by digest) are skipped; changed PDFs are re-embedded in place.
   - After importing a DB (no PDFs present), either skip ingest or run with --gc-orphans 0; ***otherwise missing-source GC will delete data***.
@@ -167,6 +174,11 @@ PROJECT_BASENAME="$(basename "$PROJECT_DIR")"
 
 BIN_DIR="$PROJECT_DIR/bin"
 WRAPPER="$BIN_DIR/chroma-mcp-here"
+CODEX_DIR="$PROJECT_DIR/.codex"
+CODEX_CONFIG="$CODEX_DIR/config.toml"
+CLAUDE_DIR="$PROJECT_DIR/.claude"
+CLAUDE_SETTINGS_LOCAL="$CLAUDE_DIR/settings.local.json"
+CLAUDE_MCP_JSON="$PROJECT_DIR/.mcp.json"
 
 # ---------- environment checks ----------
 
@@ -208,6 +220,107 @@ PY
   fi
 }
 
+write_codex_config() {
+  mkdir -p "$CODEX_DIR"
+  python3 - "$CODEX_CONFIG" <<'PY'
+import pathlib, re, sys
+
+path = pathlib.Path(sys.argv[1])
+block = """# >>> kb-tool textbooks >>>
+[mcp_servers.textbooks]
+command = "bin/chroma-mcp-here"
+
+[mcp_servers.textbooks.tools.chroma_list_collections]
+approval_mode = "approve"
+
+[mcp_servers.textbooks.tools.chroma_query_documents]
+approval_mode = "approve"
+
+[mcp_servers.textbooks.tools.chroma_get_collection_count]
+approval_mode = "approve"
+
+[mcp_servers.textbooks.tools.chroma_get_collection_info]
+approval_mode = "approve"
+
+[mcp_servers.textbooks.tools.chroma_peek_collection]
+approval_mode = "approve"
+# <<< kb-tool textbooks >>>
+"""
+
+text = path.read_text() if path.exists() else ""
+managed_pattern = re.compile(r"(?ms)^# >>> kb-tool textbooks >>>\n.*?# <<< kb-tool textbooks >>>\n?")
+legacy_pattern = re.compile(
+    r"(?ms)^\[mcp_servers\.textbooks\][\s\S]*?(?=^\[(?!mcp_servers\.textbooks(?:\.|\]))|\Z)"
+)
+if managed_pattern.search(text):
+    new_text = managed_pattern.sub(block, text)
+elif legacy_pattern.search(text):
+    new_text = legacy_pattern.sub(block.rstrip() + "\n", text)
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    new_text = text + ("\n" if text else "") + block
+
+path.write_text(new_text)
+PY
+  ok "Wrote Codex project MCP config: $CODEX_CONFIG"
+}
+
+write_claude_mcp_json() {
+  python3 - "$CLAUDE_MCP_JSON" "$MCP_NAME" <<'PY'
+import json, pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+server_name = sys.argv[2]
+payload = {}
+if path.exists():
+    payload = json.loads(path.read_text() or "{}")
+if not isinstance(payload, dict):
+    raise SystemExit(f"{path} must contain a JSON object")
+
+servers = payload.setdefault("mcpServers", {})
+if not isinstance(servers, dict):
+    raise SystemExit(f"{path}: mcpServers must be an object")
+
+servers[server_name] = {
+    "command": "bin/chroma-mcp-here",
+    "args": [],
+    "env": {},
+}
+
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+  ok "Wrote Claude project MCP config: $CLAUDE_MCP_JSON"
+}
+
+write_claude_settings_local() {
+  mkdir -p "$CLAUDE_DIR"
+  python3 - "$CLAUDE_SETTINGS_LOCAL" "$MCP_NAME" <<'PY'
+import json, pathlib, sys
+
+path = pathlib.Path(sys.argv[1])
+server_name = sys.argv[2]
+payload = {}
+if path.exists():
+    payload = json.loads(path.read_text() or "{}")
+if not isinstance(payload, dict):
+    raise SystemExit(f"{path} must contain a JSON object")
+
+enabled = payload.get("enabledMcpjsonServers")
+if enabled is None:
+    enabled = []
+elif not isinstance(enabled, list):
+    raise SystemExit(f"{path}: enabledMcpjsonServers must be a list")
+
+if server_name not in enabled:
+    enabled.append(server_name)
+
+payload["enabledMcpjsonServers"] = sorted(dict.fromkeys(enabled))
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+  ok "Wrote Claude project settings: $CLAUDE_SETTINGS_LOCAL"
+}
+
 # ---------- commands ----------
 
 cmd_install() {
@@ -232,31 +345,34 @@ cmd_init() {
   mkdir -p "$DB_DIR" "$TEXTBOOKS_DIR" "$BIN_DIR"
 
   # Wrapper that ensures the MCP server reads the correct DB path
-  if [[ ! -x "$WRAPPER" ]]; then
-    cat > "$WRAPPER" <<SH
+  cat > "$WRAPPER" <<'SH'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-# Force MCP server to use this project's DB
-export CHROMA_MCP_DIR="\${CHROMA_MCP_DIR:-$DB_DIR}"
-exec chroma-mcp --client-type persistent --data-dir "\$CHROMA_MCP_DIR" "\$@"
+# Resolve project root from the wrapper location so this stays portable.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+export CHROMA_MCP_DIR="${CHROMA_MCP_DIR:-$PROJECT_DIR/.chroma}"
+exec chroma-mcp --client-type persistent --data-dir "$CHROMA_MCP_DIR" "$@"
 SH
-    chmod +x "$WRAPPER"
-    ok "Wrote wrapper: $WRAPPER"
-  else
-    ok "Wrapper exists: $WRAPPER"
+  chmod +x "$WRAPPER"
+  ok "Wrote wrapper: $WRAPPER"
+
+  cmd_agent_config
+
+  # Personal Claude settings should stay untracked when this is a git repo.
+  if [[ -d "$PROJECT_DIR/.git" ]]; then
+    if [[ -f "$PROJECT_DIR/.gitignore" ]]; then
+      if ! grep -qxF '/.claude/settings.local.json' "$PROJECT_DIR/.gitignore"; then
+        printf '%s\n' '/.claude/settings.local.json' >> "$PROJECT_DIR/.gitignore"
+      fi
+    else
+      printf '%s\n' '/.claude/settings.local.json' > "$PROJECT_DIR/.gitignore"
+    fi
+    ok "Ensured .gitignore contains /.claude/settings.local.json"
   fi
 
-  # .gitignore hints (safe append)
-  if [[ -d "$PROJECT_DIR/.git" ]]; then
-    {
-      echo "# kb-tool"
-      echo "/.chroma/"
-      echo "/bin/chroma-mcp-here"
-      echo "/textbooks/*.pdf"
-      echo "/textbooks/*/*.pdf"
-    } | awk 'NF' | sort -u >> "$PROJECT_DIR/.gitignore" 2>/dev/null || true
-    ok "Updated .gitignore (if present)"
-  fi
+  log "Created project MCP config: .mcp.json and .codex/config.toml"
+  log "These are not gitignored by kb-tool; check them in only if this project should share them."
 
   ok "Init complete. Put PDFs into: $TEXTBOOKS_DIR"
 }
@@ -475,16 +591,18 @@ PY
   ok "Ingest finished"
 }
 
-cmd_add_mcp() {
-  need_cmd claude
+cmd_agent_config() {
   [[ -x "$WRAPPER" ]] || die "Wrapper not found: $WRAPPER (run init first)"
 
-  log "Ensuring no stale MCP named '$MCP_NAME' remains…"
-  claude mcp remove "$MCP_NAME" >/dev/null 2>&1 || true
+  log "Writing project-local agent config"
+  write_codex_config
+  write_claude_mcp_json
+  write_claude_settings_local
+  ok "Project-local Codex and Claude Code MCP config updated"
+}
 
-  log "Registering Claude MCP: $(bold "$MCP_NAME")"
-  claude mcp add "$MCP_NAME" "$WRAPPER"
-  ok "MCP registered: $MCP_NAME (command: $WRAPPER)"
+cmd_add_mcp() {
+  cmd_agent_config
 }
 
 cmd_status() {
@@ -496,6 +614,9 @@ $(bold "kb-tool status")
   Collection     : $COLLECTION
   MCP Name       : $MCP_NAME
   Wrapper        : $WRAPPER
+  Codex Config   : $CODEX_CONFIG
+  Claude MCP     : $CLAUDE_MCP_JSON
+  Claude Local   : $CLAUDE_SETTINGS_LOCAL
   Chunks         : size=$CHUNK_SIZE overlap=$CHUNK_OVERLAP batch=$BATCH
   GC orphans     : $GC_ORPHANS
 EOF
@@ -505,7 +626,7 @@ EOF
     if command -v "$c" >/dev/null 2>&1; then ok "found $c"; else warn "missing $c"; fi
   done
   if command -v pipx >/dev/null 2>&1; then ok "found pipx"; else warn "missing pipx (install from https://pypa.github.io/pipx/)"; fi
-  if command -v claude >/dev/null 2>&1; then ok "found claude CLI"; else warn "missing claude CLI (required for add-mcp)"; fi
+  if command -v claude >/dev/null 2>&1; then ok "found claude CLI"; else warn "missing claude CLI"; fi
 
   printf "\n"; log "Checking Python deps (chromadb, PyMuPDF)…"
   if assert_pdf_deps 2>/dev/null; then ok "deps OK"; else warn "deps missing—run: ./kb-tool.sh install"; fi
@@ -514,6 +635,9 @@ EOF
   [[ -d "$TEXTBOOKS_DIR" ]] && ok "textbooks dir exists" || warn "textbooks dir missing (will create on init): $TEXTBOOKS_DIR"
   [[ -d "$DB_DIR" ]] && ok "DB dir exists" || warn "DB dir missing (will create on init): $DB_DIR"
   [[ -x "$WRAPPER" ]] && ok "wrapper exists" || warn "wrapper missing (run init): $WRAPPER"
+  [[ -f "$CODEX_CONFIG" ]] && ok "Codex config exists" || warn "Codex config missing (run init or agent-config): $CODEX_CONFIG"
+  [[ -f "$CLAUDE_MCP_JSON" ]] && ok "Claude MCP config exists" || warn "Claude MCP config missing (run init or agent-config): $CLAUDE_MCP_JSON"
+  [[ -f "$CLAUDE_SETTINGS_LOCAL" ]] && ok "Claude local settings exist" || warn "Claude local settings missing (run init or agent-config): $CLAUDE_SETTINGS_LOCAL"
 }
 
 cmd_export() {
@@ -556,6 +680,7 @@ case "$COMMAND" in
   init)     cmd_init ;;
   ingest)   cmd_ingest ;;
   add-mcp)  cmd_add_mcp ;;
+  agent-config) cmd_agent_config ;;
   status)   cmd_status ;;
   export)   cmd_export ;;
   import)   cmd_import ;;
