@@ -14,7 +14,7 @@
 #
 # Resume-friendly
 #   - Re-running continues from where you left off (no full cleans).
-#   - Use --clean=light to 'ninja -t clean' WebKit objects but retain CMake cache.
+#   - Use --clean=light to decide interactively whether to rebuild private deps.
 #   - Use --clean=deep to stash/replace source trees and re-download tarballs.
 #
 # Safety & Security
@@ -23,7 +23,7 @@
 #
 # Usage
 #   ./emacs-webgtk-build.sh                      # default (Stow-enabled) build
-#   ./emacs-webgtk-build.sh --clean=light        # object clean, keep caches
+#   ./emacs-webgtk-build.sh --clean=light        # ask whether to rebuild private deps
 #   ./emacs-webgtk-build.sh --clean=deep         # stash trees & re-fetch sources
 #   ./emacs-webgtk-build.sh --no-stow            # install Emacs directly to $EMACS_PREFIX
 #   ./emacs-webgtk-build.sh --zap-old-emacs      # remove prior non-Stow 30.2 before stowing
@@ -58,6 +58,7 @@ BUILDROOT="${BUILDROOT:-$HOME/build-emacs-xw}"
 JOBS="${JOBS:-$(nproc)}"
 CLEAN="none"  # none|light|deep
 ZAP_OLD="no"
+REBUILD_PRIVATE_DEPS="auto"  # auto|yes|no
 
 # ---------------------------- Arg parsing -------------------------------------
 for arg in "$@"; do
@@ -92,6 +93,39 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"
 }
 
+webkit_present() {
+  [[ -f "$WK_PREFIX/lib/pkgconfig/webkit2gtk-4.0.pc" ]] \
+    && [[ -f "$WK_PREFIX/lib/libwebkit2gtk-4.0.so" || -f "$WK_PREFIX/lib/libwebkit2gtk-4.0.so.37" ]]
+}
+
+decide_rebuild_private_deps() {
+  case "$CLEAN" in
+    deep)
+      REBUILD_PRIVATE_DEPS="yes"
+      ;;
+    light)
+      if [[ "$REBUILD_PRIVATE_DEPS" == "auto" ]]; then
+        if [[ -t 0 ]]; then
+          printf "\nRebuild private dependencies under %s (WebKitGTK etc.)? [y/N] " "$WK_PREFIX" >&2
+          local reply
+          IFS= read -r reply || reply=""
+          case "$reply" in
+            [Yy]|[Yy][Ee][Ss]) REBUILD_PRIVATE_DEPS="yes" ;;
+            *) REBUILD_PRIVATE_DEPS="no" ;;
+          esac
+        else
+          REBUILD_PRIVATE_DEPS="no"
+        fi
+      fi
+      ;;
+    *)
+      if [[ "$REBUILD_PRIVATE_DEPS" == "auto" ]]; then
+        REBUILD_PRIVATE_DEPS="no"
+      fi
+      ;;
+  esac
+}
+
 preinstall_note() {
   log "Config:
   WebKit version:       $WK_VER
@@ -104,6 +138,7 @@ preinstall_note() {
   Stow dir:             $STOW_DIR
   Stow target:          $STOW_TARGET
   Clean mode:           $CLEAN
+  Rebuild private deps: $REBUILD_PRIVATE_DEPS
   Jobs:                 $JOBS"
 }
 
@@ -125,6 +160,14 @@ zap_old_emacs() {
   # Don't remove /usr/local/bin/emacs unless it’s a dangling/conflicting leftover:
   if [[ -L /usr/local/bin/emacs ]]; then
     sudo rm -f /usr/local/bin/emacs
+  fi
+}
+
+remove_stale_glib_schema_cache() {
+  local target="$STOW_TARGET/share/glib-2.0/schemas/gschemas.compiled"
+  if [[ -e "$target" && ! -L "$target" ]]; then
+    log "Removing stale non-stowed GLib schema cache at $target"
+    sudo rm -f "$target"
   fi
 }
 
@@ -167,6 +210,7 @@ PKGS=(
 
   # Emacs feature headers
   libgnutls28-dev libjansson-dev libtree-sitter-dev librsvg2-dev libgccjit-12-dev libmailutils-dev
+  libasound2-dev
 
   # Stow (default flow depends on it)
   stow
@@ -180,8 +224,10 @@ fi
 
 # Sanity for WOFF2 (should succeed after installing libwoff-dev)
 pkg-config --exists libwoff2dec || die "pkg-config can't find libwoff2dec (install libwoff-dev)."
+pkg-config --exists alsa || die "pkg-config can't find alsa (install libasound2-dev)."
 
 # --------------------- 2) Prepare sources / cleaning ---------------------------
+decide_rebuild_private_deps
 preinstall_note
 mkdir -p "$BUILDROOT"
 cd "$BUILDROOT"
@@ -201,7 +247,7 @@ fi
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-if [[ "$CLEAN" == "light" ]]; then
+if [[ "$CLEAN" == "light" && "$REBUILD_PRIVATE_DEPS" == "yes" ]]; then
   ninja -t clean || true
 fi
 
@@ -209,20 +255,25 @@ fi
 sudo mkdir -p "$WK_PREFIX"
 
 # ------------------ 3) Configure & build WebKitGTK (GTK3 + Soup2) --------------
-log "3) Configuring WebKitGTK $WK_VER (GTK3 + libsoup2) → $WK_PREFIX"
-cmake .. -GNinja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_INSTALL_PREFIX="$WK_PREFIX" \
-  -DPORT=GTK \
-  -DUSE_SOUP2=ON \
-  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+if [[ "$REBUILD_PRIVATE_DEPS" == "yes" ]]; then
+  log "3) Configuring WebKitGTK $WK_VER (GTK3 + libsoup2) → $WK_PREFIX"
+  cmake .. -GNinja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$WK_PREFIX" \
+    -DPORT=GTK \
+    -DUSE_SOUP2=ON \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
-log "Building WebKitGTK (jobs: $JOBS)"
-ninja -j"$JOBS"
-sudo ninja install
+  log "Building WebKitGTK (jobs: $JOBS)"
+  ninja -j"$JOBS"
+  sudo ninja install
+else
+  log "3) Skipping WebKitGTK rebuild and reusing existing private install at $WK_PREFIX"
+fi
 
 # Verify the private pkg-config file and version
+webkit_present || die "Expected an existing WebKitGTK install under $WK_PREFIX, but it was not found."
 PKG_CONFIG_PATH="$WK_PREFIX/lib/pkgconfig" pkg-config --exists webkit2gtk-4.0 \
   || die "private webkit2gtk-4.0 .pc not found in $WK_PREFIX/lib/pkgconfig"
 
@@ -265,6 +316,9 @@ export LDFLAGS="-Wl,-rpath,$WK_PREFIX/lib ${LDFLAGS:-}"
   --with-gnutls \
   --with-xml2
 
+grep -q '^#define HAVE_ALSA 1$' src/config.h \
+  || die "Emacs configure did not enable ALSA (expected HAVE_ALSA=1 in src/config.h)."
+
 make -j"$JOBS"
 sudo make install
 
@@ -274,6 +328,7 @@ if [[ "$STOW_ENABLE" == "yes" ]]; then
   # Ensure Stow dir exists and optionally zap old non-Stow files
   sudo mkdir -p "$STOW_DIR"
   zap_old_emacs
+  remove_stale_glib_schema_cache
 
   log "Dry-run Stow to check for conflicts..."
   if ! sudo stow -n -v -d "$STOW_DIR" -t "$STOW_TARGET" "$STOW_NAME"; then

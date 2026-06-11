@@ -191,6 +191,7 @@ install_build_prereqs() {
     libacl1-dev \
     libgpm-dev \
     libgnutls28-dev \
+    libasound2-dev \
     imagemagick \
     libmagickwand-7.q16-dev
 }
@@ -433,6 +434,9 @@ build_emacs() {
     --with-modules
 
   log "12a) Verifying Emacs configure result"
+
+  grep -q '^#define HAVE_ALSA 1$' src/config.h \
+    || die "Emacs configure did not enable ALSA (expected HAVE_ALSA=1 in src/config.h)"
 
   grep -q '^#define HAVE_XWIDGETS 1$' src/config.h \
     || {

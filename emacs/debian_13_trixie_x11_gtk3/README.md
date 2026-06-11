@@ -10,6 +10,10 @@ This directory contains a working, rerunnable recipe for building and installing
 - against a **private pinned ICU 75.1**
 - installed cleanly with **GNU Stow**
 
+Native Emacs sound on Linux is expected to work too, but only if Emacs is
+configured with ALSA support. That means the build environment must include
+`libasound2-dev` before running `./configure`.
+
 This was debugged on **Debian 13 / Trixie**, and the final result is:
 
 - Emacs builds successfully
@@ -70,6 +74,11 @@ The hard part here is not ordinary Emacs compilation. The hard part is getting:
 - runtime rendering behavior
 
 all aligned.
+
+That also includes the native sound backend. If `libasound2-dev` is missing at
+configure time, Emacs can still build successfully overall while silently
+leaving `HAVE_ALSA` unset. In that case `play-sound-file` fails later even
+though the xwidget/WebKit build itself is otherwise fine.
 
 ---
 

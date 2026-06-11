@@ -17,6 +17,9 @@ Older **Debian 12 (bookworm)** workflow focused on:
 
 Use this if you specifically want the older Bookworm-era approach and you are working in a Wayland-oriented environment.
 
+This path now also assumes `libasound2-dev` is present before `./configure`, so
+native Emacs sound support is not silently omitted.
+
 ### `debian_13_trixie_x11_gtk3/`
 
 Newer **Debian 13 (trixie)** workflow focused on:
@@ -29,6 +32,9 @@ Newer **Debian 13 (trixie)** workflow focused on:
 - a separate **client installer** for deploying the built artifacts to another machine
 
 Use this if you want the newer, more structured Debian 13 workflow with packaging and client-side installation.
+
+This path also expects `libasound2-dev` before `./configure` so the resulting
+Emacs has ALSA-backed native sound support.
 
 ## Why there are two separate trees
 
@@ -47,8 +53,8 @@ That is intentional.
 
 Use:
 
-- `debian_12_wayland/` for the older **Bookworm + Wayland/PGTK** path
-- `debian_13_x11/` for the newer **Trixie + X11/GTK3** path
+- `debian_12_bookworm_wayland_pgtk/` for the older **Bookworm + Wayland/PGTK** path
+- `debian_13_trixie_x11_gtk3/` for the newer **Trixie + X11/GTK3** path
 
 If you are unsure, start with the README in each subdirectory and check:
 

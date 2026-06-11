@@ -92,8 +92,13 @@ After install you should have:
 sudo apt install -y git libgtk-3-dev libtree-sitter-dev \
   libgnutls28-dev libjpeg-dev libpng-dev libtiff-dev libgif-dev \
   libjansson-dev libharfbuzz-dev libwebp-dev libxpm-dev \
-  libgccjit-12-dev
+  libgccjit-12-dev libasound2-dev
 ```
+
+`libasound2-dev` matters even if your main goal is xwidgets. On Linux, native
+Emacs sound uses ALSA. If that package is missing, `./configure` can still
+succeed overall while silently leaving `HAVE_ALSA` unset, which later breaks
+`play-sound-file`.
 
 ### 2.2 Ensure pkg-config can find `/opt/wk240`
 
@@ -129,6 +134,7 @@ Quick checks:
 
 ```bash
 /usr/local/stow/emacs-30.2-wk/bin/emacs --version  # should be 30.2
+/bin/grep '^#define HAVE_ALSA 1$' src/config.h     # should match exactly
 /usr/local/stow/emacs-30.2-wk/bin/emacs -Q --batch \
   --eval '(princ (featurep '"'"'xwidget-internal))'   # should print: t
 ```

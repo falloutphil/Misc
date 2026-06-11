@@ -1,0 +1,72 @@
+#+title: Emacs Build Recipes
+
+This repository contains separate Emacs build recipes for different platform and display-stack combinations.
+
+Do not mix them.
+
+* Wayland build to use here
+
+For the current Debian 12 / WSLg / Wayland / PGTK / xwidgets setup, the source of truth is:
+
+- =debian_12_bookworm_wayland_pgtk/readme.md=
+- =debian_12_bookworm_wayland_pgtk/build-emacs-30.2-with-pinned-webgtk.sh=
+- =debian_12_bookworm_wayland_pgtk/emacs_prompt.zsh=
+
+This is the correct family for the currently installed binary:
+
+- Emacs 30.2
+- PGTK / Wayland
+- xwidgets enabled
+- private WebKitGTK pinned under =/opt/wk240=
+- GNU Stow install under =/usr/local/stow/emacs-30.2-wk=
+
+Do not switch this build to an X11 recipe.
+
+* Active install layout
+
+- WebKitGTK runtime prefix: =/opt/wk240=
+- Stowed Emacs package: =/usr/local/stow/emacs-30.2-wk=
+- Public launcher: =/usr/local/bin/emacs=
+
+The build uses =/opt/wk240= specifically so xwidgets work with the only known-good WebKit combination on this machine.
+
+Do not casually change:
+
+- =WK_PREFIX=
+- =RUNPATH=
+- Wayland / PGTK configure flags
+- xwidget runtime wrapper environment
+
+* Build notes
+
+The Wayland build script now assumes ALSA development headers are present:
+
+- =libasound2-dev=
+
+This matters because native Emacs sound on Linux is using ALSA in this build path. Without that package, configure can succeed overall while silently leaving =HAVE_ALSA= unset, which breaks =play-sound-file= even if WSLg audio itself works.
+
+The script now checks for that explicitly.
+
+* Recommended entry points
+
+If you want the full portable explanation first:
+
+- read =debian_12_bookworm_wayland_pgtk/readme.md=
+
+If you just want to build the known-good Wayland variant:
+
+- run =debian_12_bookworm_wayland_pgtk/build-emacs-30.2-with-pinned-webgtk.sh=
+
+If you want the runtime shell wrapper for WSLg / Wayland:
+
+- read =debian_12_bookworm_wayland_pgtk/emacs_prompt.zsh=
+
+* Other recipes
+
+There is also a separate X11 recipe tree for Debian 13:
+
+- =debian_13_trixie_x11_gtk3/=
+
+That is intentionally separate.
+
+Do not use it for this Wayland build.
