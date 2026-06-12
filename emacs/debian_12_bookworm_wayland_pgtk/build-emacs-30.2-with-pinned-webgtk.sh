@@ -171,6 +171,62 @@ remove_stale_glib_schema_cache() {
   fi
 }
 
+configure_alsa_pulse_bridge() {
+  local asoundrc="$HOME/.asoundrc"
+  local asoundrc_block
+  local updated_asoundrc="no"
+  log "6) Configuring ALSA default routing for native Emacs sound"
+  log "Why: this Emacs build uses ALSA, while WSL/WSLg usually exposes PulseAudio as the working runtime sink"
+
+  asoundrc_block=$(cat <<'EOF'
+# Added for Emacs ALSA sound on WSLg/PulseAudio.
+pcm.!default {
+  type pulse
+}
+ctl.!default {
+  type pulse
+}
+EOF
+)
+
+  if [[ ! -e "$asoundrc" ]]; then
+    printf '%s\n' "$asoundrc_block" > "$asoundrc"
+    updated_asoundrc="yes"
+  else
+    if grep -Eq '^[[:space:]]*(pcm|ctl)\.!default[[:space:]]*\{' "$asoundrc"; then
+      log "Existing ALSA default config found in $asoundrc; leaving it unchanged"
+      printf '\nPlease merge this stanza into %s manually if Emacs sound still fails:\n%s\n' "$asoundrc" "$asoundrc_block"
+    else
+      printf '\n%s\n' "$asoundrc_block" >> "$asoundrc"
+      updated_asoundrc="yes"
+    fi
+  fi
+
+  if [[ "$updated_asoundrc" == "yes" ]]; then
+    grep -q '^  type pulse$' "$asoundrc" || die "Pulse routing stanza missing from $asoundrc"
+    log "Installed ALSA-to-Pulse routing in $asoundrc"
+  else
+    log "ALSA-to-Pulse routing was not written automatically; see the manual merge note above if needed"
+  fi
+}
+
+find_sound_test_file() {
+  find /usr/share/sounds -type f -name '*.wav' 2>/dev/null | head -n 1
+}
+
+verify_emacs_sound() {
+  local emacs_bin="$1"
+  local sound_file
+  sound_file="$(find_sound_test_file)"
+  if [[ -z "$sound_file" ]]; then
+    log "No WAV test file found under /usr/share/sounds; skipping Emacs sound smoke test"
+    return 0
+  fi
+
+  log "7) Running Emacs sound smoke test with $sound_file"
+  "$emacs_bin" -Q --batch     --eval "(condition-case err (progn (play-sound-file \"$sound_file\") (princ \"ok\")) (error (princ (error-message-string err)) (kill-emacs 12)))"     | grep -q '^ok$' || die "Emacs sound smoke test failed"
+}
+
 # --------------------------- 1) System packages --------------------------------
 log "1) Installing build dependencies (apt)"
 sudo apt update
@@ -210,7 +266,7 @@ PKGS=(
 
   # Emacs feature headers
   libgnutls28-dev libjansson-dev libtree-sitter-dev librsvg2-dev libgccjit-12-dev libmailutils-dev
-  libasound2-dev
+  libasound2-dev libasound2-plugins alsa-utils
 
   # Stow (default flow depends on it)
   stow
@@ -353,8 +409,24 @@ Success!
 Run Emacs:
   $( [[ "$STOW_ENABLE" == "yes" ]] && echo "$STOW_TARGET/bin/emacs" || echo "$EMACS_PREFIX/bin/emacs" )
 
+WSL/WSLg native sound post-build step:
+  cat > ~/.asoundrc <<'EOF'
+  pcm.!default {
+    type pulse
+  }
+  ctl.!default {
+    type pulse
+  }
+  EOF
+
+Why this is needed:
+  Emacs sound on Linux uses ALSA in this build path. On WSLg, PulseAudio is
+  typically available but native ALSA hardware is not. The ALSA-to-Pulse bridge
+  gives `play-sound-file` a usable default device.
+
 Inside Emacs:
   M-: (featurep 'xwidget-internal)   ;; should print t
+  M-: (play-sound-file "/usr/share/sounds/purple/receive.wav")
 
 Doom tip (config.el):
   (if (featurep 'xwidget-internal)

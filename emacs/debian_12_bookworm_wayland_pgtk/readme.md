@@ -92,13 +92,30 @@ After install you should have:
 sudo apt install -y git libgtk-3-dev libtree-sitter-dev \
   libgnutls28-dev libjpeg-dev libpng-dev libtiff-dev libgif-dev \
   libjansson-dev libharfbuzz-dev libwebp-dev libxpm-dev \
-  libgccjit-12-dev libasound2-dev
+  libgccjit-12-dev libasound2-dev libasound2-plugins alsa-utils
 ```
 
 `libasound2-dev` matters even if your main goal is xwidgets. On Linux, native
 Emacs sound uses ALSA. If that package is missing, `./configure` can still
 succeed overall while silently leaving `HAVE_ALSA` unset, which later breaks
 `play-sound-file`.
+
+On WSL/WSLg-style systems, build-time ALSA support is only half the story.
+Those environments usually expose PulseAudio rather than native ALSA hardware,
+so Emacs also needs the ALSA-to-Pulse bridge at runtime. In practice that means
+installing `libasound2-plugins` and `alsa-utils`, then creating `~/.asoundrc`:
+
+```conf
+pcm.!default {
+  type pulse
+}
+ctl.!default {
+  type pulse
+}
+```
+
+Without that runtime bridge, `play-sound-file` can still fail with “No usable
+sound device driver found” even after a correct rebuild.
 
 ### 2.2 Ensure pkg-config can find `/opt/wk240`
 
@@ -195,7 +212,17 @@ sudo stow -R    -d /usr/local/stow -t /usr/local emacs-30.2-wk
 
 # 6) Runtime dependencies (TLS/GIO + GPU stack)
 sudo apt install -y glib-networking ca-certificates \
-  libgl1-mesa-dri libegl1 libgbm1 mesa-vulkan-drivers
+  libgl1-mesa-dri libegl1 libgbm1 mesa-vulkan-drivers \
+  libasound2-plugins alsa-utils
+
+cat > ~/.asoundrc <<'EOF'
+pcm.!default {
+  type pulse
+}
+ctl.!default {
+  type pulse
+}
+EOF
 ```
 
 ---
@@ -321,6 +348,13 @@ emacs() {
    # Expect /opt/wk240/lib/libwebkit2gtk-4.0.so... and /usr/lib/.../gio/modules/* from system
    ```
 
+5. **Native sound can open a default device**
+
+   ```bash
+   /usr/local/bin/emacs -Q --batch --eval '(condition-case err (progn (play-sound-file "/usr/share/sounds/purple/receive.wav") (princ "ok")) (error (princ err)))'
+   # Expect: ok
+   ```
+
 ---
 
 ## 6) Wayland & WSLg notes
@@ -344,6 +378,8 @@ emacs() {
   Remove conflicting stale files under `/usr/local/share/applications/` and re-run Stow (see §2.4).
 * **`featurep 'xwidget-internal` is `nil`**
   You forgot `--with-xwidgets` (or used a non-PGTK build). Reconfigure & rebuild Emacs.
+* **`play-sound-file` says “No usable sound device driver found” on WSL/WSLg**
+  Your Emacs rebuild may be correct, but ALSA still has no default device. Install `libasound2-plugins` and `alsa-utils`, add the Pulse routing stanza to `~/.asoundrc`, then restart Emacs.
 
 ---
 

@@ -47,6 +47,14 @@ This matters because native Emacs sound on Linux is using ALSA in this build pat
 
 The script now checks for that explicitly.
 
+On WSL/WSLg-style systems, build-time ALSA support is still not sufficient by itself. Native Emacs sound also needs the ALSA-to-Pulse bridge at runtime:
+
+- =libasound2-plugins=
+- =alsa-utils=
+- =~/.asoundrc= routing ALSA default output to Pulse
+
+Without that runtime bridge, =play-sound-file= can still fail with no usable sound device even after a correct rebuild.
+
 * Recommended entry points
 
 If you want the full portable explanation first:

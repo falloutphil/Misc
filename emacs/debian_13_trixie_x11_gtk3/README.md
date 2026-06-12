@@ -80,6 +80,27 @@ configure time, Emacs can still build successfully overall while silently
 leaving `HAVE_ALSA` unset. In that case `play-sound-file` fails later even
 though the xwidget/WebKit build itself is otherwise fine.
 
+On WSL/WSLg-style environments, a correct rebuild is still not sufficient by
+itself. Native Emacs sound uses ALSA, while WSLg typically exposes PulseAudio
+rather than native ALSA hardware. In that case you also need the ALSA-to-Pulse
+bridge at runtime:
+
+- `libasound2-plugins`
+- `alsa-utils`
+- `~/.asoundrc` containing:
+
+```conf
+pcm.!default {
+  type pulse
+}
+ctl.!default {
+  type pulse
+}
+```
+
+Without that, `play-sound-file` can still fail with `No usable sound device
+driver found` even though `HAVE_ALSA=1` is present in the Emacs build.
+
 ---
 
 ## The final architecture

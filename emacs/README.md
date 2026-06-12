@@ -19,6 +19,10 @@ Use this if you specifically want the older Bookworm-era approach and you are wo
 
 This path now also assumes `libasound2-dev` is present before `./configure`, so
 native Emacs sound support is not silently omitted.
+On WSL/WSLg-style systems that expose PulseAudio rather than native ALSA
+hardware, native Emacs sound also needs the ALSA-to-Pulse bridge at runtime:
+`libasound2-plugins`, `alsa-utils`, and a user `~/.asoundrc` that routes the
+ALSA default device to Pulse.
 
 ### `debian_13_trixie_x11_gtk3/`
 
@@ -35,6 +39,9 @@ Use this if you want the newer, more structured Debian 13 workflow with packagin
 
 This path also expects `libasound2-dev` before `./configure` so the resulting
 Emacs has ALSA-backed native sound support.
+For WSL/WSLg-style environments, that build-time support is still not enough
+on its own: you also need the ALSA-to-Pulse bridge configured at runtime so
+`play-sound-file` has a usable default device.
 
 ## Why there are two separate trees
 

@@ -56,7 +56,64 @@ need_cmd() {
 }
 
 log() {
-  printf '\n[%s] %s\n' "$(date +%H:%M:%S)" "$*"
+  printf '
+[%s] %s
+' "$(date +%H:%M:%S)" "$*"
+}
+
+configure_alsa_pulse_bridge() {
+  local asoundrc="$HOME/.asoundrc"
+  local asoundrc_block
+  local updated_asoundrc="no"
+  log "13) Configuring ALSA default routing for native Emacs sound"
+  log "Why: Emacs uses ALSA, but WSL/WSLg typically exposes PulseAudio as the usable runtime sink"
+
+  asoundrc_block=$(cat <<'EOF'
+# Added for Emacs ALSA sound on WSLg/PulseAudio.
+pcm.!default {
+  type pulse
+}
+ctl.!default {
+  type pulse
+}
+EOF
+)
+
+  if [[ ! -e "$asoundrc" ]]; then
+    printf '%s\n' "$asoundrc_block" > "$asoundrc"
+    updated_asoundrc="yes"
+  else
+    if grep -Eq '^[[:space:]]*(pcm|ctl)\.!default[[:space:]]*\{' "$asoundrc"; then
+      log "Existing ALSA default config found in $asoundrc; leaving it unchanged"
+      printf '\nPlease merge this stanza into %s manually if Emacs sound still fails:\n%s\n' "$asoundrc" "$asoundrc_block"
+    else
+      printf '\n%s\n' "$asoundrc_block" >> "$asoundrc"
+      updated_asoundrc="yes"
+    fi
+  fi
+
+  if [[ "$updated_asoundrc" == "yes" ]]; then
+    grep -q '^  type pulse$' "$asoundrc" || die "Pulse routing stanza missing from $asoundrc"
+    log "Installed ALSA-to-Pulse routing in $asoundrc"
+  else
+    log "ALSA-to-Pulse routing was not written automatically; see the manual merge note above if needed"
+  fi
+}
+
+find_sound_test_file() {
+  find /usr/share/sounds -type f -name '*.wav' 2>/dev/null | head -n 1
+}
+
+verify_emacs_sound() {
+  local sound_file
+  sound_file="$(find_sound_test_file)"
+  if [[ -z "$sound_file" ]]; then
+    log "No WAV test file found under /usr/share/sounds; skipping Emacs sound smoke test"
+    return 0
+  fi
+
+  log "14) Running Emacs sound smoke test with $sound_file"
+  /usr/local/bin/emacs -Q --batch     --eval "(condition-case err (progn (play-sound-file \"$sound_file\") (princ \"ok\")) (error (princ (error-message-string err)) (kill-emacs 12)))"     | grep -q '^ok$' || die "Emacs sound smoke test failed"
 }
 
 die() {
@@ -116,6 +173,8 @@ sudo apt-get install -y \
   gstreamer1.0-plugins-ugly \
   gstreamer1.0-libav \
   gstreamer1.0-alsa \
+  libasound2-plugins \
+  alsa-utils \
   libsoup2.4-1 \
   libsecret-1-0 \
   libenchant-2-2 \
@@ -194,7 +253,10 @@ esac
 command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1 \
   || die "Neither magick nor convert found on PATH"
 
-log "13) Final notes"
+configure_alsa_pulse_bridge
+verify_emacs_sound
+
+log "15) Final notes"
 cat <<EOF
 
 Install complete.
@@ -213,6 +275,8 @@ What to use:
       /usr/local/bin/emacs
   - For xwidget/WebKit browsing on machines that show blank or badly rendered pages:
       ${SAFE_WRAPPER} -Q
+  - The installer has already written a managed ~/.asoundrc stanza routing ALSA
+    default output to Pulse, verified that stanza, and run an Emacs sound smoke test.
 
 Why the extra wrapper exists:
   Some Debian 13 + GTK3/X11 + WebKitGTK setups render xwidgets incorrectly unless
@@ -224,6 +288,8 @@ Checks passed:
   - Emacs is stowed into /usr/local
   - xwidgets support is present
   - ImageMagick support is present
+  - managed ALSA-to-Pulse routing stanza is installed in ~/.asoundrc
+  - Emacs native sound smoke test passed
 
 Suggested first test:
   ${SAFE_WRAPPER} -Q
