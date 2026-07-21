@@ -3,12 +3,12 @@
 # Copyright (c) 2025 Philip Beadling
 
 # Quick install:
-#   curl -fsSLo kb-tool.sh https://raw.githubusercontent.com/falloutphil/Misc/master/AI/kb-tool.sh
-#   chmod +x kb-tool.sh && ./kb-tool.sh help
+#   curl -fsSLo kb-tool https://raw.githubusercontent.com/falloutphil/Misc/master/AI/kb-tool
+#   chmod +x kb-tool && ./kb-tool help
 # Optional install to PATH:
-#   install -Dm755 kb-tool.sh ~/.local/bin/kb-tool.sh
+#   install -Dm755 kb-tool ~/.local/bin/kb-tool
 
-# kb-tool.sh — Project-scoped Chroma MCP toolkit for Claude Code and Codex
+# kb-tool — Project-scoped Chroma MCP toolkit for Claude Code and Codex
 #
 # Features:
 #   - install : pipx-install patched chroma-mcp + PDF dependencies (PyMuPDF)
@@ -36,11 +36,11 @@
 #   - you may want to add a CLAUDE.md file to the root of your project to tell Claude about the MCP tool
 #
 # Usage examples:
-#   ./kb-tool.sh all
-#   ./kb-tool.sh init --project-dir ~/git/myproj
-#   ./kb-tool.sh ingest --chunk-size 950 --chunk-overlap 220
-#   ./kb-tool.sh add-mcp --mcp-name textbooks-myproj
-#   ./kb-tool.sh agent-config
+#   ./kb-tool all
+#   ./kb-tool init --project-dir ~/git/myproj
+#   ./kb-tool ingest --chunk-size 950 --chunk-overlap 220
+#   ./kb-tool add-mcp --mcp-name textbooks-myproj
+#   ./kb-tool agent-config
 #
 # Exit codes:
 #   0 on success, non-zero on error.
@@ -83,7 +83,7 @@ FILE_PATH=""
 
 usage() {
   cat <<'USAGE'
-kb-tool.sh — Project-scoped Chroma MCP toolkit
+kb-tool — Project-scoped Chroma MCP toolkit
 
 Commands:
   install           Install chroma-mcp via pipx and inject PDF deps (PyMuPDF).
@@ -111,17 +111,17 @@ Global options (apply to most commands):
   --file PATH             For export/import: output or input tar.gz path
 
 Examples:
-  ./kb-tool.sh all
-  ./kb-tool.sh ingest --project-dir ~/git/myproj --chunk-size 950 --chunk-overlap 220
-  ./kb-tool.sh add-mcp --mcp-name textbooks-ml-papers
-  ./kb-tool.sh agent-config --project-dir ~/git/myproj
-  ./kb-tool.sh export --file /tmp/myproj-kb.tar.gz
-  ./kb-tool.sh import --file /tmp/myproj-kb.tar.gz
+  ./kb-tool all
+  ./kb-tool ingest --project-dir ~/git/myproj --chunk-size 950 --chunk-overlap 220
+  ./kb-tool add-mcp --mcp-name textbooks-ml-papers
+  ./kb-tool agent-config --project-dir ~/git/myproj
+  ./kb-tool export --file /tmp/myproj-kb.tar.gz
+  ./kb-tool import --file /tmp/myproj-kb.tar.gz
 
   # After import, register the MCP (no ingest needed):
-  ./kb-tool.sh init && ./kb-tool.sh add-mcp
+  ./kb-tool init && ./kb-tool add-mcp
   # If you want to ADD new PDFs to an imported DB (keep old embeddings intact):
-  ./kb-tool.sh ingest --gc-orphans 0
+  ./kb-tool ingest --gc-orphans 0
 
 Notes:
   - "install" uses pipx with the patched falloutphil fork of chroma-mcp, then injects PDF deps
@@ -216,7 +216,7 @@ except Exception:
 sys.exit(0 if ok else 1)
 PY
   then
-    die "Python deps not found. Run: ./kb-tool.sh install"
+    die "Python deps not found. Run: ./kb-tool install"
   fi
 }
 
@@ -629,7 +629,7 @@ EOF
   if command -v claude >/dev/null 2>&1; then ok "found claude CLI"; else warn "missing claude CLI"; fi
 
   printf "\n"; log "Checking Python deps (chromadb, PyMuPDF)…"
-  if assert_pdf_deps 2>/dev/null; then ok "deps OK"; else warn "deps missing—run: ./kb-tool.sh install"; fi
+  if assert_pdf_deps 2>/dev/null; then ok "deps OK"; else warn "deps missing—run: ./kb-tool install"; fi
 
   printf "\n"; log "Filesystem checks…"
   [[ -d "$TEXTBOOKS_DIR" ]] && ok "textbooks dir exists" || warn "textbooks dir missing (will create on init): $TEXTBOOKS_DIR"
