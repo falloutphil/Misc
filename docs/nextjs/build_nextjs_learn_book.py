@@ -9,17 +9,17 @@ from nextjs.org/learn.
 Outputs:
   nextjs-learn.md
   nextjs-learn.html
-  nextjs-learn.epub  (requires pandoc)
+  nextjs-learn.epub  (requires pandoc or pypandoc_binary)
   nextjs-learn.pdf   (optional: requires weasyprint or chromium)
   quality-report.txt
 
 Dependencies:
-  python3 -m pip install requests beautifulsoup4 markdownify lxml
-  brew install pandoc                 # macOS
-  python3 -m pip install weasyprint   # optional PDF engine
+  python3 -m pip install -r requirements.txt
+  brew install pandoc                 # optional on macOS; pypandoc_binary also works
+  python3 -m pip install weasyprint   # optional PDF engine if not using requirements.txt
 
 Example:
-  python3 build_nextjs_learn_book_final.py \
+  python3 build_nextjs_learn_book.py \
     --course app \
     --out-dir ./nextjs-app-router-course \
     --skip-pdf
@@ -111,6 +111,23 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subproce
 
 def which(name: str) -> str | None:
     return shutil.which(name)
+
+
+def pandoc_path() -> str | None:
+    direct = which("pandoc")
+    if direct:
+        return direct
+
+    try:
+        import pypandoc  # type: ignore
+    except ImportError:
+        return None
+
+    try:
+        candidate = pypandoc.get_pandoc_path()
+    except OSError:
+        return None
+    return candidate if candidate and Path(candidate).exists() else None
 
 
 def ensure_dir(path: Path) -> None:
@@ -831,14 +848,15 @@ def build_markdown(pages: list[Page], out_dir: Path, title: str, fetched_at: str
 
 
 def pandoc_available() -> bool:
-    return which("pandoc") is not None
+    return pandoc_path() is not None
 
 
 def build_html(md_path: Path, out_dir: Path, css: Path, title: str) -> Path:
     html_path = out_dir / "nextjs-learn.html"
-    if pandoc_available():
+    pandoc = pandoc_path()
+    if pandoc:
         run([
-            "pandoc", str(md_path),
+            pandoc, str(md_path),
             "--from", "gfm+yaml_metadata_block",
             "--to", "html5",
             "--standalone",
@@ -855,12 +873,13 @@ def build_html(md_path: Path, out_dir: Path, css: Path, title: str) -> Path:
 
 
 def build_epub(md_path: Path, out_dir: Path, css: Path, title: str) -> Path | None:
-    if not pandoc_available():
+    pandoc = pandoc_path()
+    if not pandoc:
         print("WARN: pandoc not found; skipping EPUB", file=sys.stderr)
         return None
     epub_path = out_dir / "nextjs-learn.epub"
     run([
-        "pandoc", str(md_path),
+        pandoc, str(md_path),
         "--from", "gfm+yaml_metadata_block",
         "--to", "epub3",
         "--standalone",
