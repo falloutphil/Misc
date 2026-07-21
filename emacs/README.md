@@ -24,6 +24,23 @@ hardware, native Emacs sound also needs the ALSA-to-Pulse bridge at runtime:
 `libasound2-plugins`, `alsa-utils`, and a user `~/.asoundrc` that routes the
 ALSA default device to Pulse.
 
+### `debian_13_trixie_wayland_pgtk/`
+
+Newer **Debian 13 (trixie)** workflow for **Windows WSL / WSLg** focused on:
+
+- **Wayland / PGTK**
+- **xwidgets**
+- private pinned WebKitGTK and ICU under `/opt`
+- WebKit built with the Wayland target enabled
+- GNU Stow-managed Emacs install under `/usr/local/stow`
+- a builder/packager script and a separate client installer
+- WSLg-aware launchers for the Wayland socket, WebKit helper path, GIO/TLS
+  module path, and ALSA-to-Pulse audio bridge
+
+Use this if you have moved the older Debian 12 WSLg Wayland setup to Debian 13
+and want the same broad behavior with the newer Trixie private ICU/WebKit
+packaging flow.
+
 ### `debian_13_trixie_x11_gtk3/`
 
 Newer **Debian 13 (trixie)** workflow focused on:
@@ -43,7 +60,7 @@ For WSL/WSLg-style environments, that build-time support is still not enough
 on its own: you also need the ALSA-to-Pulse bridge configured at runtime so
 `play-sound-file` has a usable default device.
 
-## Why there are two separate trees
+## Why there are separate trees
 
 Emacs with `xwidgets` is awkward because it depends on a compatible WebKitGTK stack, and the practical solution differs depending on:
 
@@ -61,6 +78,7 @@ That is intentional.
 Use:
 
 - `debian_12_bookworm_wayland_pgtk/` for the older **Bookworm + Wayland/PGTK** path
+- `debian_13_trixie_wayland_pgtk/` for the newer **Trixie + Windows WSLg + Wayland/PGTK** path
 - `debian_13_trixie_x11_gtk3/` for the newer **Trixie + X11/GTK3** path
 
 If you are unsure, start with the README in each subdirectory and check:
@@ -94,7 +112,7 @@ If more variants are added later, they should follow the same pattern:
 
 Examples:
 
-- `debian_13_wayland/`
+- `debian_13_trixie_wayland_pgtk/`
 - `debian_14_x11/`
 - `ubuntu_24_04_wayland/`
 

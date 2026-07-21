@@ -6,13 +6,36 @@ Do not mix them.
 
 * Wayland build to use here
 
-For the current Debian 12 / WSLg / Wayland / PGTK / xwidgets setup, the source of truth is:
+For the current Debian 13 / Windows WSL / WSLg / Wayland / PGTK / xwidgets setup, the source of truth is:
+
+- =debian_13_trixie_wayland_pgtk/README.md=
+- =debian_13_trixie_wayland_pgtk/emacs-wayland-pgtk-webgtk-build-and-package-trixie.sh=
+- =debian_13_trixie_wayland_pgtk/emacs-wayland-pgtk-webgtk-client-install-trixie.sh=
+- =debian_13_trixie_wayland_pgtk/emacs_prompt.zsh=
+
+This is the correct family for the current Debian 13 WSLg target:
+
+- Emacs 30.2
+- PGTK / Wayland
+- xwidgets enabled
+- private ICU pinned under =/opt/icu75=
+- private WebKitGTK pinned under =/opt/wk240=
+- GNU Stow install under =/usr/local/stow/emacs-30.2-pgtkwk=
+
+It borrows the WebKit/ICU pinning and packaging shape from the Trixie X11 recipe,
+but keeps the Wayland/WSLg runtime behaviour from the older Bookworm recipe.
+
+Do not switch this build to the X11 recipe.
+
+* Older Debian 12 Wayland build
+
+For the older Debian 12 / WSLg / Wayland / PGTK / xwidgets setup, the source of truth is:
 
 - =debian_12_bookworm_wayland_pgtk/readme.md=
 - =debian_12_bookworm_wayland_pgtk/build-emacs-30.2-with-pinned-webgtk.sh=
 - =debian_12_bookworm_wayland_pgtk/emacs_prompt.zsh=
 
-This is the correct family for the currently installed binary:
+This is the correct family for the older Debian 12 binary:
 
 - Emacs 30.2
 - PGTK / Wayland
@@ -20,15 +43,18 @@ This is the correct family for the currently installed binary:
 - private WebKitGTK pinned under =/opt/wk240=
 - GNU Stow install under =/usr/local/stow/emacs-30.2-wk=
 
-Do not switch this build to an X11 recipe.
+Do not use this older tree for the Debian 13 WSLg target unless you are intentionally
+reproducing the old Bookworm build.
 
-* Active install layout
+* Active Debian 13 install layout
 
 - WebKitGTK runtime prefix: =/opt/wk240=
-- Stowed Emacs package: =/usr/local/stow/emacs-30.2-wk=
+- ICU runtime prefix: =/opt/icu75=
+- Stowed Emacs package: =/usr/local/stow/emacs-30.2-pgtkwk=
 - Public launcher: =/usr/local/bin/emacs=
 
-The build uses =/opt/wk240= specifically so xwidgets work with the only known-good WebKit combination on this machine.
+The build uses =/opt/wk240= specifically so xwidgets work with the pinned WebKit
+combination for this WSLg/Wayland setup.
 
 Do not casually change:
 
@@ -59,15 +85,15 @@ Without that runtime bridge, =play-sound-file= can still fail with no usable sou
 
 If you want the full portable explanation first:
 
-- read =debian_12_bookworm_wayland_pgtk/readme.md=
+- read =debian_13_trixie_wayland_pgtk/README.md=
 
 If you just want to build the known-good Wayland variant:
 
-- run =debian_12_bookworm_wayland_pgtk/build-emacs-30.2-with-pinned-webgtk.sh=
+- run =debian_13_trixie_wayland_pgtk/emacs-wayland-pgtk-webgtk-build-and-package-trixie.sh=
 
 If you want the runtime shell wrapper for WSLg / Wayland:
 
-- read =debian_12_bookworm_wayland_pgtk/emacs_prompt.zsh=
+- read =debian_13_trixie_wayland_pgtk/emacs_prompt.zsh=
 
 * Other recipes
 
