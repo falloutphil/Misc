@@ -8,7 +8,7 @@ fonttools==4.63.0
 idna==3.18
 lxml==6.1.1
 markdownify==1.2.2
-pillow==12.2.0
+pillow==12.3.0
 pycparser==3.0
 pydyf==0.12.1
 pyphen==0.17.2
