@@ -187,13 +187,27 @@ need_cmd() {
 }
 
 pipx_venv_python() {
-  # Prefer the standard pipx path, fallback to system python
-  local p="$HOME/.local/pipx/venvs/chroma-mcp/bin/python"
-  if [[ -x "$p" ]]; then
-    echo "$p"
-  else
-    echo "python3"
+  local pipx_home="${PIPX_HOME:-}"
+  local candidates=()
+
+  if [[ -n "$pipx_home" ]]; then
+    candidates+=("$pipx_home/venvs/chroma-mcp/bin/python")
   fi
+
+  candidates+=(
+    "$HOME/.local/share/pipx/venvs/chroma-mcp/bin/python"
+    "$HOME/.local/pipx/venvs/chroma-mcp/bin/python"
+  )
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -x "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 assert_pdf_deps() {
