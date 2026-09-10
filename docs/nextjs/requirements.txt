@@ -21,7 +21,7 @@ tinyhtml5==2.1.0
 typing_extensions==4.15.0
 urllib3==2.7.0
 # PDF output support via the `weasyprint` CLI/script.
-weasyprint==69.0
+weasyprint==70.0
 webencodings==0.5.1
 zopfli==0.4.2
 # Optional EPUB support when no system `pandoc` is installed.
