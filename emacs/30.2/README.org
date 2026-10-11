@@ -8,7 +8,7 @@ Do not mix them.
 
 For the current Debian 13 / Windows WSL / WSLg / Wayland / PGTK / xwidgets setup, the source of truth is:
 
-- =debian_13_trixie_wayland_pgtk/README.md=
+- =debian_13_trixie_wayland_pgtk/README.org=
 - =debian_13_trixie_wayland_pgtk/emacs-wayland-pgtk-webgtk-build-and-package-trixie.sh=
 - =debian_13_trixie_wayland_pgtk/emacs-wayland-pgtk-webgtk-client-install-trixie.sh=
 - =debian_13_trixie_wayland_pgtk/emacs_prompt.zsh=
@@ -31,7 +31,7 @@ Do not switch this build to the X11 recipe.
 
 For the older Debian 12 / WSLg / Wayland / PGTK / xwidgets setup, the source of truth is:
 
-- =debian_12_bookworm_wayland_pgtk/readme.md=
+- =debian_12_bookworm_wayland_pgtk/readme.org=
 - =debian_12_bookworm_wayland_pgtk/build-emacs-30.2-with-pinned-webgtk.sh=
 - =debian_12_bookworm_wayland_pgtk/emacs_prompt.zsh=
 
@@ -85,7 +85,7 @@ Without that runtime bridge, =play-sound-file= can still fail with no usable sou
 
 If you want the full portable explanation first:
 
-- read =debian_13_trixie_wayland_pgtk/README.md=
+- read =debian_13_trixie_wayland_pgtk/README.org=
 
 If you just want to build the known-good Wayland variant:
 

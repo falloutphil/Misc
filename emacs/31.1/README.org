@@ -1,0 +1,194 @@
+* Emacs 31.1 on Debian 13 / Trixie
+Emacs 31.1 on Trixie now uses Debian's native WebKitGTK 4.1 packages for
+xwidgets. The older private =/opt/icu75= and =/opt/wk240= WebKit stack
+remains only in the Emacs 30.2 scripts.
+
+The Wayland/PGTK build was validated on this machine with Trixie's
+=libwebkit2gtk-4.1-dev=; it built, stowed as the default
+=/usr/local/bin/emacs=, loaded =xwidget-internal=, linked to native
+WebKitGTK 4.1/libsoup3, and Doom rebuilt successfully under Emacs 31.1.
+
+The X11 script is the matching GTK3/X11 native-WebKit recipe for 31.1.
+It uses the same Debian WebKitGTK 4.1 package and feature set, but
+should still be runtime-tested on an actual X11 session before treating
+the X11 flavour as proven in the same way as Wayland.
+
+** Scripts
+Wayland/PGTK:
+
+#+begin_src bash
+emacs/31.1/debian_13_trixie_wayland_pgtk/emacs-wayland-pgtk-native-webkit-build-trixie.sh --clean=none
+#+end_src
+
+X11/GTK3:
+
+#+begin_src bash
+emacs/31.1/debian_13_trixie_x11_gtk3/emacs-x11-native-webkit-build-trixie.sh --clean=none
+#+end_src
+
+Both scripts support:
+
+#+begin_src text
+--clean=none   reuse downloaded source and rebuild Emacs
+--clean=light  remove extracted Emacs source and rebuild
+--clean=deep   remove the workroot and rebuild
+#+end_src
+
+The scripts install through GNU Stow and make the new package the active
+default by unstowing other =emacs-*= packages from =/usr/local= first.
+Existing Stow packages are not deleted, so rollback to 30.2 remains
+available.
+
+** WebKit Change
+Emacs 30.2 needed a pinned private WebKitGTK 2.40.x build because its
+configure logic rejected newer WebKit versions and xwidgets were fragile
+across WebKit, libsoup, compositor, and WSLg combinations.
+
+Emacs 31.1 removed the old WebKit upper-bound and configures against
+=webkit2gtk-4.1=. On Trixie this means:
+
+#+begin_src text
+libwebkit2gtk-4.1-dev
+libsoup-3.0-dev
+#+end_src
+
+The validated Wayland build linked to Debian WebKitGTK =2.54.0= and
+libsoup =3.6.5=.
+
+** Enabled Configure Features
+Both 31.1 scripts intentionally enable and then verify the important
+local capabilities:
+
+#+begin_src text
+--with-xwidgets
+--with-native-compilation
+--with-tree-sitter
+--with-libsystemd
+--with-dbus
+--with-gsettings
+--with-mailutils
+--with-imagemagick
+--with-lcms2
+--with-selinux
+--with-rsvg
+--with-jpeg
+--with-png
+--with-tiff
+--with-gif
+--with-webp
+--with-harfbuzz
+--with-gnutls
+--with-modules
+--with-sqlite3
+--with-xml2
+--with-sound=alsa
+#+end_src
+
+Wayland uses =--with-pgtk=. X11 uses =--with-x-toolkit=gtk3=.
+
+SELinux is explicit in 31.1 because installing =libselinux1-dev= is not
+enough: configure only enabled it after adding =--with-selinux=. The
+script verifies =HAVE_LIBSELINUX= so this cannot silently regress.
+
+=texinfo= is installed to avoid the =makeinfo >= 4.13= warning and keep
+manual rebuilds available.
+
+** Apt Dependency Groups
+The scripts install these Trixie packages:
+
+#+begin_src text
+build-essential pkg-config curl ca-certificates xz-utils file stow gettext texinfo
+libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+libjansson-dev libtree-sitter-dev libgccjit-14-dev
+libsystemd-dev libdbus-1-dev
+librsvg2-dev libmailutils-dev libmagickwand-7.q16-dev liblcms2-dev
+libseccomp-dev libgmp-dev libselinux1-dev
+libxpm-dev libncurses-dev libacl1-dev libgpm-dev libgnutls28-dev
+libasound2-dev libasound2-plugins alsa-utils
+libsqlite3-dev libxml2-dev libharfbuzz-dev
+libjpeg-dev libpng-dev libtiff-dev libgif-dev libwebp-dev
+libotf-dev libm17n-dev
+glib-networking bubblewrap xdg-dbus-proxy
+gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-alsa
+imagemagick
+#+end_src
+
+Why they are present:
+
+- Build tooling and source handling: compiler toolchain, =pkg-config=,
+  =curl=, =xz-utils=, =file=, =stow=, =gettext=, and =texinfo=.
+- Native WebKitGTK: =libwebkit2gtk-4.1-dev= and =libsoup-3.0-dev=.
+- UI/toolkit: =libgtk-3-dev=, plus PGTK or X11 selected by configure.
+- Lisp/runtime integrations: JSON, tree-sitter, native compilation via
+  libgccjit, modules, SQLite, XML, GnuTLS, D-Bus, GSettings, and
+  systemd.
+- Image and text rendering: SVG, ImageMagick, LCMS2, JPEG, PNG, TIFF,
+  GIF, WebP, HarfBuzz, OTF, and m17n.
+- OS integration and security: ACL, GPM, GMP, seccomp, SELinux, ncurses,
+  XPM.
+- Sound/media and xwidgets runtime: ALSA, GStreamer plugins, GLib
+  networking, bubblewrap, and xdg-dbus-proxy.
+
+** Installing A Built Stow Package Elsewhere
+The build result is a normal GNU Stow tree under =/usr/local/stow=. For
+the validated Wayland build the package is:
+
+#+begin_src text
+/usr/local/stow/emacs-31.1-pgtk-nativewk
+#+end_src
+
+That tree can be copied to another Debian 13 / Trixie machine with the
+same CPU architecture, such as another Wayland laptop. It is not a
+standalone static bundle: the target machine still needs the matching
+Debian runtime libraries, especially native WebKitGTK 4.1/libsoup3,
+GTK3, libgccjit, tree-sitter, image libraries, sound/media libraries,
+GLib networking, bubblewrap, and xdg-dbus-proxy.
+
+On the build machine:
+
+#+begin_src bash
+cd /usr/local/stow
+sudo tar -czf "$HOME/emacs-31.1-pgtk-nativewk-trixie-amd64.tar.gz" emacs-31.1-pgtk-nativewk
+sudo chown "$USER:$USER" "$HOME/emacs-31.1-pgtk-nativewk-trixie-amd64.tar.gz"
+#+end_src
+
+Copy that archive to the other Trixie laptop, then on the target machine
+install the runtime dependency set. The conservative option is to
+install the same apt package list used by the build script; this
+includes development packages, but it avoids missing-library surprises
+and matches the tested environment.
+
+Then install and activate the copied Stow tree:
+
+#+begin_src bash
+sudo mkdir -p /usr/local/stow
+sudo tar -xzf emacs-31.1-pgtk-nativewk-trixie-amd64.tar.gz -C /usr/local/stow
+for pkg in /usr/local/stow/emacs-*; do
+  [[ -d "$pkg" ]] || continue
+  sudo stow -D -d /usr/local/stow -t /usr/local "${pkg##*/}"
+done
+sudo stow -R -d /usr/local/stow -t /usr/local emacs-31.1-pgtk-nativewk
+/usr/local/bin/emacs --version
+/usr/local/bin/emacs -Q --batch --eval "(unless (featurep 'xwidget-internal) (kill-emacs 11))"
+#+end_src
+
+If you want the same Wayland helper launchers on the target machine,
+install the 31.1 script from this repository and copy the two wrapper
+definitions from its =install_wrappers= function, or run the script on
+that machine instead of using the copied Stow tree.
+
+** Rollback
+To roll back from the validated Wayland 31.1 package to the existing
+30.2 Stow package:
+
+#+begin_src bash
+sudo stow -D -d /usr/local/stow -t /usr/local emacs-31.1-pgtk-nativewk
+sudo stow -R -d /usr/local/stow -t /usr/local emacs-30.2-pgtkwk
+#+end_src
+
+The X11 31.1 package name is:
+
+#+begin_src text
+emacs-31.1-x11-nativewk
+#+end_src

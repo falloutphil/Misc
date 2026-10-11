@@ -1,25 +1,32 @@
-Boom—nice sleuthing. Here’s exactly what changed, why it fixed the blank xwidget, and a cleaned-up `emacs()` that bakes it all in.
+Boom---nice sleuthing. Here's exactly what changed, why it fixed the
+blank xwidget, and a cleaned-up =emacs()= that bakes it all in.
 
-# What was wrong (and what we fixed)
+* What was wrong (and what we fixed)
+1. *Version mismatch between UI libs and helper processes* Emacs (UI
+   process) was loading your WebKitGTK from =/opt/wk240/lib=, but the
+   spawned helpers (=WebKitWebProcess= / =WebKitNetworkProcess=) were
+   coming from the /system/ path. That ABI/protocol mismatch produces
+   the "Received invalid message ..." spam and a white canvas. *Fix:*
+   set =WEBKIT_EXEC_PATH=/opt/wk240/libexec/webkit2gtk-4.0= so the
+   helpers match the UI libs.
 
-1. **Version mismatch between UI libs and helper processes**
-   Emacs (UI process) was loading your WebKitGTK from `/opt/wk240/lib`, but the spawned helpers (`WebKitWebProcess` / `WebKitNetworkProcess`) were coming from the *system* path. That ABI/protocol mismatch produces the “Received invalid message …” spam and a white canvas.
-   **Fix:** set `WEBKIT_EXEC_PATH=/opt/wk240/libexec/webkit2gtk-4.0` so the helpers match the UI libs.
+2. *TLS plugins weren't being found* When =GIO_MODULE_DIR= pointed at
+   =/opt=, Emacs couldn't see GLib's TLS modules (provided by
+   =glib-networking=), so HTTPS failed ("TLS/SSL support not
+   available"). *Fix:* *don't* override =GIO_MODULE_DIR=; instead,
+   *unset* it and set =GIO_EXTRA_MODULES= to your system's GIO module
+   dir (Debian: =/usr/lib/x86_64-linux-gnu/gio/modules=). Keep
+   =ca-certificates= installed. Now HTTPS works.
 
-2. **TLS plugins weren’t being found**
-   When `GIO_MODULE_DIR` pointed at `/opt`, Emacs couldn’t see GLib’s TLS modules (provided by `glib-networking`), so HTTPS failed (“TLS/SSL support not available”).
-   **Fix:** **don’t** override `GIO_MODULE_DIR`; instead, **unset** it and set `GIO_EXTRA_MODULES` to your system’s GIO module dir (Debian: `/usr/lib/x86_64-linux-gnu/gio/modules`). Keep `ca-certificates` installed. Now HTTPS works.
+3. *Wayland/WSLg stability* DMA-BUF on WSLg can be flaky. *Fix:* keep
+   =WEBKIT_DISABLE_DMABUF_RENDERER=1= (safe on X11 too).
 
-3. **Wayland/WSLg stability**
-   DMA-BUF on WSLg can be flaky.
-   **Fix:** keep `WEBKIT_DISABLE_DMABUF_RENDERER=1` (safe on X11 too).
+4. *Keep shares in sync, but don't override schemas* Add
+   =/opt/wk240/share= to =XDG_DATA_DIRS=, but don't set
+   =GSETTINGS_SCHEMA_DIR=. That avoids schema/version mismatches.
 
-4. **Keep shares in sync, but don’t override schemas**
-   Add `/opt/wk240/share` to `XDG_DATA_DIRS`, but don’t set `GSETTINGS_SCHEMA_DIR`. That avoids schema/version mismatches.
-
-# Drop-in zsh function (robust & conditional)
-
-```zsh
+* Drop-in zsh function (robust & conditional)
+#+begin_src zsh
 # Robust Emacs launcher for zsh (works with or without /opt/wk240)
 emacs() {
   # Resolve real binary (prefer Stow on PATH)
@@ -88,51 +95,55 @@ emacs() {
     command "$bin" "$@" > /dev/null 2>>"$log" &!
   fi
 }
-```
+#+end_src
 
-## Notes / switches you can use
+** Notes / switches you can use
+- =EMACS_NO_WK240=1 emacs …= → ignore =/opt/wk240= entirely (use system
+  WebKit).
+- =EMACS_ENABLE_DMABUF=1 emacs …= → try DMA-BUF on Wayland.
+- =EMACS_FORCE_X11=1 emacs …= → skip the Wayland shim.
+- =EMACS_GIO_MODULES=/custom/dir emacs …= → override the auto-detected
+  GIO modules path.
 
-* `EMACS_NO_WK240=1 emacs …` → ignore `/opt/wk240` entirely (use system WebKit).
-* `EMACS_ENABLE_DMABUF=1 emacs …` → try DMA-BUF on Wayland.
-* `EMACS_FORCE_X11=1 emacs …` → skip the Wayland shim.
-* `EMACS_GIO_MODULES=/custom/dir emacs …` → override the auto-detected GIO modules path.
+With this, your =xwidget-webkit= renders reliably (helpers match the UI
+libs; TLS works; DMA-BUF is tamed).
 
-With this, your `xwidget-webkit` renders reliably (helpers match the UI libs; TLS works; DMA-BUF is tamed).
+-----
 
+In Conclusion - The WebKit build was fine---the breakage was at
+*runtime* because Emacs mixed your =/opt/wk240= libs with Debian's
+system ones. Xwidgets needs the *UI process*, the *helper processes*,
+and the *GIO/TLS plugins* to be from compatible locations. When those
+didn't line up you got a white canvas and "Received invalid message
+...".
 
+*** What must be set at runtime (the short list)
+- Point Emacs' *UI process* at your private WebKitGTK:
 
+  - =LD_LIBRARY_PATH=/opt/wk240/lib=
+  - =GI_TYPELIB_PATH=/opt/wk240/lib/girepository-1.0=
 
--------------------
+- Force the *helpers* to match the same build:
 
+  - =WEBKIT_EXEC_PATH=/opt/wk240/libexec/webkit2gtk-4.0=
 
+- *Do not* replace system GIO modules (that broke TLS):
 
-In Conclusion - The WebKit build was fine—the breakage was at **runtime** because Emacs mixed your `/opt/wk240` libs with Debian’s system ones. Xwidgets needs the **UI process**, the **helper processes**, and the **GIO/TLS plugins** to be from compatible locations. When those didn’t line up you got a white canvas and “Received invalid message …”.
+  - =unset GIO_MODULE_DIR=
+  - =GIO_EXTRA_MODULES=/usr/lib/x86_64-linux-gnu/gio/modules=
+  - Ensure =glib-networking= and =ca-certificates= are installed.
 
-### What must be set at runtime (the short list)
+- Let GSettings find both your and system schemas without overriding:
 
-* Point Emacs’ **UI process** at your private WebKitGTK:
+  - =XDG_DATA_DIRS=/opt/wk240/share:/usr/local/share:/usr/share=
+  - (Do *not* set =GSETTINGS_SCHEMA_DIR=.)
 
-  * `LD_LIBRARY_PATH=/opt/wk240/lib`
-  * `GI_TYPELIB_PATH=/opt/wk240/lib/girepository-1.0`
-* Force the **helpers** to match the same build:
+- Wayland/WSLg stability toggle (safe on X11):
 
-  * `WEBKIT_EXEC_PATH=/opt/wk240/libexec/webkit2gtk-4.0`
-* **Do not** replace system GIO modules (that broke TLS):
+  - =WEBKIT_DISABLE_DMABUF_RENDERER=1=
 
-  * `unset GIO_MODULE_DIR`
-  * `GIO_EXTRA_MODULES=/usr/lib/x86_64-linux-gnu/gio/modules`
-  * Ensure `glib-networking` and `ca-certificates` are installed.
-* Let GSettings find both your and system schemas without overriding:
-
-  * `XDG_DATA_DIRS=/opt/wk240/share:/usr/local/share:/usr/share`
-  * (Do **not** set `GSETTINGS_SCHEMA_DIR`.)
-* Wayland/WSLg stability toggle (safe on X11):
-
-  * `WEBKIT_DISABLE_DMABUF_RENDERER=1`
-
-### Minimal wrapper (drop-in)
-
-```bash
+*** Minimal wrapper (drop-in)
+#+begin_src bash
 #!/usr/bin/env bash
 export LD_LIBRARY_PATH=/opt/wk240/lib${LD_LIBRARY_PATH+:$LD_LIBRARY_PATH}
 export GI_TYPELIB_PATH=/opt/wk240/lib/girepository-1.0${GI_TYPELIB_PATH+:$GI_TYPELIB_PATH}
@@ -142,7 +153,8 @@ export GIO_EXTRA_MODULES=/usr/lib/x86_64-linux-gnu/gio/modules
 export XDG_DATA_DIRS=/opt/wk240/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
 exec /usr/local/bin/emacs "$@"
-```
+#+end_src
 
-If you keep those directives (already folded into the zsh `emacs()` I gave you), Emacs won’t “stray” onto Debian’s defaults and xwidget-webkit will render reliably.
-
+If you keep those directives (already folded into the zsh =emacs()= I
+gave you), Emacs won't "stray" onto Debian's defaults and xwidget-webkit
+will render reliably.
