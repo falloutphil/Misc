@@ -1,123 +1,70 @@
 # Emacs Build Recipes
 
-This directory contains **versioned, platform-specific Emacs build and packaging workflows**.
+This directory contains versioned, platform-specific Emacs build workflows.
+The version directory is the first compatibility boundary; the Debian release
+and display stack are the second.
 
-The recipes here are not interchangeable. They target different Debian releases, different display stacks, and different runtime assumptions.
+## Current Default
 
-## Directory Layout
+For Debian 13 / Trixie, the current default is Emacs 31.1 with Debian's native
+WebKitGTK 4.1 packages:
 
-### `debian_12_bookworm_wayland_pgtk/`
+- `31.1/debian_13_trixie_wayland_pgtk/`
+- `31.1/debian_13_trixie_x11_gtk3/`
 
-Older **Debian 12 (bookworm)** workflow focused on:
+The Wayland/PGTK build has been validated on this machine and is the active
+default. The X11/GTK3 script is the matching 31.1 native-WebKit recipe, but it
+still needs runtime testing on an actual X11 session.
 
-- **Wayland / PGTK**
-- **xwidgets**
-- wrapper-driven runtime setup
-- environments such as Wayland desktops and WSLg-style setups
+Start with:
 
-Use this if you specifically want the older Bookworm-era approach and you are working in a Wayland-oriented environment.
+```text
+31.1/README.md
+```
 
-This path now also assumes `libasound2-dev` is present before `./configure`, so
-native Emacs sound support is not silently omitted.
-On WSL/WSLg-style systems that expose PulseAudio rather than native ALSA
-hardware, native Emacs sound also needs the ALSA-to-Pulse bridge at runtime:
-`libasound2-plugins`, `alsa-utils`, and a user `~/.asoundrc` that routes the
-ALSA default device to Pulse.
+## Preserved 30.2 Builds
 
-### `debian_13_trixie_wayland_pgtk/`
+The Emacs 30.2 recipes are preserved under:
 
-Newer **Debian 13 (trixie)** workflow for **Windows WSL / WSLg** focused on:
+```text
+30.2/
+```
 
-- **Wayland / PGTK**
-- **xwidgets**
-- private pinned WebKitGTK and ICU under `/opt`
-- WebKit built with the Wayland target enabled
-- GNU Stow-managed Emacs install under `/usr/local/stow`
-- a builder/packager script and a separate client installer
-- WSLg-aware launchers for the Wayland socket, WebKit helper path, GIO/TLS
-  module path, and ALSA-to-Pulse audio bridge
+These include the older Bookworm and Trixie recipes that used pinned private
+WebKitGTK/ICU builds under `/opt`. Keep them for rollback and historical
+reproducibility, but do not use them as the starting point for new 31.1 Trixie
+builds.
 
-Use this if you have moved the older Debian 12 WSLg Wayland setup to Debian 13
-and want the same broad behavior with the newer Trixie private ICU/WebKit
-packaging flow.
+## Layout
 
-### `debian_13_trixie_x11_gtk3/`
+```text
+30.2/
+  debian_12_bookworm_wayland_pgtk/
+  debian_13_trixie_wayland_pgtk/
+  debian_13_trixie_x11_gtk3/
 
-Newer **Debian 13 (trixie)** workflow focused on:
+31.1/
+  README.md
+  debian_13_trixie_wayland_pgtk/
+  debian_13_trixie_x11_gtk3/
+```
 
-- **X11 + GTK3**
-- **xwidgets**
-- private pinned WebKitGTK and ICU under `/opt`
-- GNU Stow-managed Emacs install under `/usr/local/stow`
-- a proper **builder/packager** flow
-- a separate **client installer** for deploying the built artifacts to another machine
+## Which One Should I Use?
 
-Use this if you want the newer, more structured Debian 13 workflow with packaging and client-side installation.
+Use `31.1/debian_13_trixie_wayland_pgtk/` for the current Debian 13 Wayland
+laptop build.
 
-This path also expects `libasound2-dev` before `./configure` so the resulting
-Emacs has ALSA-backed native sound support.
-For WSL/WSLg-style environments, that build-time support is still not enough
-on its own: you also need the ALSA-to-Pulse bridge configured at runtime so
-`play-sound-file` has a usable default device.
+Use `31.1/debian_13_trixie_x11_gtk3/` if you specifically need a GTK3/X11
+build on Trixie.
 
-## Why there are separate trees
+Use the `30.2/` tree only when you need the old pinned-WebKit builds or a
+rollback target.
 
-Emacs with `xwidgets` is awkward because it depends on a compatible WebKitGTK stack, and the practical solution differs depending on:
+## Notes
 
-- Debian release
-- X11 vs Wayland/PGTK
-- whether the target machine is the build machine
-- how much runtime environment wrapping is needed
+The recipes are intentionally separate. Emacs with xwidgets is sensitive to the
+Debian release, display backend, WebKitGTK version, and runtime environment, so
+each known-good combination keeps its own script and local notes.
 
-Rather than trying to force all cases into one script, this repository keeps the workflows separate and explicit.
-
-That is intentional.
-
-## Which one should I use?
-
-Use:
-
-- `debian_12_bookworm_wayland_pgtk/` for the older **Bookworm + Wayland/PGTK** path
-- `debian_13_trixie_wayland_pgtk/` for the newer **Trixie + Windows WSLg + Wayland/PGTK** path
-- `debian_13_trixie_x11_gtk3/` for the newer **Trixie + X11/GTK3** path
-
-If you are unsure, start with the README in each subdirectory and check:
-
-1. your Debian version
-2. whether you are targeting X11 or Wayland
-3. whether you need to build locally or deploy a packaged result to another machine
-
-## Notes on naming
-
-The subdirectories are named to preserve the important compatibility boundary:
-
-- Debian release
-- display/backend model
-
-That makes it easier to keep multiple known-good build recipes without confusing them.
-
-## Recommended usage
-
-Enter the directory that matches your target platform and follow its local `README.md`.
-
-Each subtree should be treated as a self-contained build reference for that platform.
-
-## Future additions
-
-If more variants are added later, they should follow the same pattern:
-
-- one directory per distro/display-stack combination
-- one local README per variant
-- scripts and helper files kept inside that variant's directory
-
-Examples:
-
-- `debian_13_trixie_wayland_pgtk/`
-- `debian_14_x11/`
-- `ubuntu_24_04_wayland/`
-
-## Summary
-
-This directory is a small collection of **separate, known-good Emacs build recipes**, not one universal installer.
-
-Pick the subtree that matches your platform and use that as the source of truth.
+GNU Stow is used for installed Emacs packages under `/usr/local/stow`, allowing
+multiple builds to exist while only one is active in `/usr/local/bin/emacs`.
