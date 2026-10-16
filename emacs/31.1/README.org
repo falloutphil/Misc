@@ -178,6 +178,121 @@ install the 31.1 script from this repository and copy the two wrapper
 definitions from its =install_wrappers= function, or run the script on
 that machine instead of using the copied Stow tree.
 
+** WSLg Incident: One Long Desktop Launcher Broke All Debian GUI Apps
+*** What happened and when
+On 16 October 2026, Debian's GUI applications stopped working under WSLg:
+Chromium exited with =X connection error received= and GUI Emacs failed,
+while terminal Emacs (=emacs -nw=) continued working. A fresh Ubuntu distro
+on the same Windows machine ran both =xeyes= and Chromium successfully.
+The Debian problem was fixed shortly after midnight on 17 October 2026
+(Europe/London time), without reinstalling Debian.
+
+The offending file was =/usr/local/share/applications/emacsclient.desktop=,
+created on 11 October 2026 at 23:34:42 BST during the Codex-assisted Emacs
+31.1 native-WebKit build/install. It belonged to Linux user =phil=.
+Emacs's =make install= generates this desktop entry from its source
+template; GNU Stow exposes it through =/usr/local/share/applications=.
+It is installed even if Emacs is only launched from a terminal and no
+Linux desktop session is used. The problem did not require clicking the
+launcher or starting Emacs Client.
+
+*** Why one launcher affected Chromium too
+WSLg enumerates the distro's desktop entries and sends them to its
+Windows =WSLDVCPlugin.dll= component to create Start-menu shortcuts.
+The generated Emacs Client entry contained a shell conditional and two
+copies of the long absolute path to the installed =emacsclient= binary.
+Weston logged a 246-character exported command. WSLg's plugin adds its
+own distro/working-directory launch prefix and formats the result with
+=swprintf_s= into =WCHAR exeArgs[MAX_PATH]= (260 characters). The combined
+command exceeded that buffer, invoking the C runtime's invalid-parameter
+fail-fast handler and terminating =msrdc.exe=.
+
+Because that process supports the shared GUI connection, all Debian GUI
+apps lost their display. Chromium's GPU warning was not sufficient to
+identify the cause. Weston subsequently crashed after losing its RDP peer.
+
+The relevant Windows Application Error events were:
+
+#+begin_example
+Faulting application: msrdc.exe
+Faulting module: WSLDVCPlugin.dll
+Exception code: 0xc0000409
+Fault offset: 0x00000000000118dc
+#+end_example
+
+Disassembly at that offset showed a fast-fail with subcode 5 (invalid
+argument); the exception code alone should not be interpreted as proof
+of a stack buffer overwrite. The failure reproduced with WSL 3.0.3 /
+WSLg 1.0.79 and after rollback to WSL 2.7.14 / WSLg 1.0.73.2, on Windows
+10.0.26300.9711. The rollback did not fix it. A general Windows-update
+regression was initially suspected but was not established.
+
+*** When to check this on another machine
+After installing, rebuilding, or copying this Stow package onto a WSLg
+machine, inspect the installed desktop entry, particularly if the install
+prefix differs. The launcher text and added WSLg prefix must fit the
+plugin's buffer. The raw =Exec= length alone does not include that prefix.
+
+#+begin_src bash
+readlink -f /usr/local/share/applications/emacsclient.desktop
+awk '/^Exec=/{print length($0)-5, $0}' /usr/local/share/applications/emacsclient.desktop
+tail -80 /mnt/wslg/stderr.log
+#+end_src
+
+Repeated =msrdc.exe ... exited with status 9= messages followed by
+=exited more than 10 times in 60 seconds, not starting it again= warrant
+checking Windows Application events for the faulting module. These log
+messages alone do not prove this particular launcher is responsible.
+Do not reinstall a distro solely because they appear.
+
+*** Tested fix: keep the desktop Exec short
+Move the conditional into a separate shell script and reference it from
+the main desktop entry. This preserves reuse-frame behavior for file
+arguments and create-frame behavior when launched without files.
+The commands below match the tested Wayland package; adjust both binary
+paths for a different Stow package or installation prefix.
+
+#+begin_src bash
+desktop=/usr/local/share/applications/emacsclient.desktop
+# Preserve the original once; do not overwrite an existing incident backup.
+sudo cp -pn "$desktop" "$desktop.before-wslg-fix"
+sudo tee /usr/local/share/applications/emacsclient-wslg-launcher.sh >/dev/null <<'EOF'
+#!/bin/sh
+if [ "$#" -gt 0 ]; then
+    exec /usr/local/stow/emacs-31.1-pgtk-nativewk/bin/emacsclient --alternate-editor= --reuse-frame "$@"
+else
+    exec /usr/local/stow/emacs-31.1-pgtk-nativewk/bin/emacsclient --alternate-editor= --create-frame
+fi
+EOF
+# Replace only the first (main) Exec entry, preserving Desktop Action entries.
+sudo sed -i '0,/^Exec=/{s|^Exec=.*|Exec=sh /usr/local/share/applications/emacsclient-wslg-launcher.sh %F|;}' "$desktop"
+sh -n /usr/local/share/applications/emacsclient-wslg-launcher.sh
+#+end_src
+
+The script is invoked through =sh=, so it does not need an executable bit.
+The new main =Exec= value is 64 characters including =%F=, instead of the
+long inline conditional. The original installed entry was backed up as
+=emacsclient.desktop.before-wslg-fix=; the live file resolves into the
+Stow package's =share/applications= directory.
+
+If WSLg has already exhausted its client restart attempts, save work and
+close any assistant running inside WSL before running =wsl --shutdown=
+from Windows PowerShell. This stops WSL sessions and will kill an
+assistant running inside Debian. Reopen Debian and test Chromium and
+Emacs. During this incident, reconnecting the Windows RDP client with
+its recorded session parameters avoided shutting down Debian; that was
+a session-specific diagnostic recovery, not a reusable command.
+
+Verification on 17 October: the RDP client survived application-list
+synchronization, both Emacs shortcuts were created in the Windows
+Start menu, and Chromium opened successfully, confirmed by the user.
+No Debian reinstall was needed.
+
+This is an installed-file workaround, not yet an automatic change in the
+build scripts. A subsequent =make install= or rebuild can regenerate the
+long entry: recheck and reapply the fix after such an installation.
+Copying a Stow archive made before this fix can also reintroduce it.
+
 ** Rollback
 To roll back from the validated Wayland 31.1 package to the existing
 30.2 Stow package:
