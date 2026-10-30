@@ -279,6 +279,28 @@ build_emacs() {
 	popd >/dev/null
 }
 
+fix_emacsclient_desktop() {
+    local desktop="${EMACS_PREFIX}/share/applications/emacsclient.desktop"
+    local launcher="${EMACS_PREFIX}/share/applications/emacsclient-wslg-launcher.sh"
+
+    log "Shortening Emacs Client desktop command for WSLg"
+    [[ -f "$desktop" ]] || die "Missing Emacs Client desktop entry: $desktop"
+    grep -q '^Exec=' "$desktop" || die "Missing Exec in Emacs Client desktop entry: $desktop"
+
+    cat > "$launcher" <<'EOF'
+#!/bin/sh
+if [ "$#" -gt 0 ]; then
+    exec /usr/local/bin/emacsclient --alternate-editor= --reuse-frame "$@"
+else
+    exec /usr/local/bin/emacsclient --alternate-editor= --create-frame
+fi
+EOF
+    sed -i '0,/^Exec=/{s|^Exec=.*|Exec=sh /usr/local/share/applications/emacsclient-wslg-launcher.sh %F|;}' "$desktop"
+    grep -qxF 'Exec=sh /usr/local/share/applications/emacsclient-wslg-launcher.sh %F' "$desktop" ||
+        die "Failed to shorten Emacs Client desktop command: $desktop"
+    sh -n "$launcher"
+}
+
 remove_stale_glib_schema_cache() {
 	local target="/usr/local/share/glib-2.0/schemas/gschemas.compiled"
 	if [[ -e "$target" && ! -L "$target" ]]; then
@@ -415,6 +437,7 @@ main() {
 	prepare_workspace
 	fetch_emacs
 	build_emacs
+	fix_emacsclient_desktop
 	stow_emacs
 	install_wrappers
 	run_tests

@@ -288,10 +288,11 @@ synchronization, both Emacs shortcuts were created in the Windows
 Start menu, and Chromium opened successfully, confirmed by the user.
 No Debian reinstall was needed.
 
-This is an installed-file workaround, not yet an automatic change in the
-build scripts. A subsequent =make install= or rebuild can regenerate the
-long entry: recheck and reapply the fix after such an installation.
-Copying a Stow archive made before this fix can also reintroduce it.
+Both Emacs 31.1 build scripts now shorten the main desktop =Exec= after
+=make install= and before stowing. The launcher is included in the Stow
+package, so new packages and archives built by these scripts retain the fix.
+A standalone =make install= or an archive made before this script change can
+still regenerate the long entry; reapply the tested fix in that case.
 
 ** Rollback
 To roll back from the validated Wayland 31.1 package to the existing
